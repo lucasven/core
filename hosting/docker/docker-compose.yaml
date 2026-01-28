@@ -10,7 +10,10 @@ version: "3.8"
 services:
   core:
     container_name: core-app
-    image: redplanethq/core:${VERSION}
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+    image: redplanethq/core:local
     environment:
       - NODE_ENV=${NODE_ENV}
       - DATABASE_URL=${DATABASE_URL}
@@ -28,6 +31,9 @@ services:
       - NEO4J_USERNAME=${NEO4J_USERNAME}
       - NEO4J_PASSWORD=${NEO4J_PASSWORD}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GOOGLE_GENERATIVE_AI_API_KEY=${GOOGLE_GENERATIVE_AI_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - AUTH_GOOGLE_CLIENT_ID=${AUTH_GOOGLE_CLIENT_ID}
       - AUTH_GOOGLE_CLIENT_SECRET=${AUTH_GOOGLE_CLIENT_SECRET}
       - ENABLE_EMAIL_LOGIN=${ENABLE_EMAIL_LOGIN}
@@ -77,7 +83,7 @@ services:
     networks:
       - core
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5

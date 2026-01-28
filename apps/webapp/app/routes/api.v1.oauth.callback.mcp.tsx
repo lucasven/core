@@ -1,6 +1,7 @@
 import { type LoaderFunctionArgs } from "@remix-run/node";
 import { completeCustomMcpOAuth } from "@core/mcp-proxy";
 import { logger } from "~/services/logger.service";
+import { getErrorMessage } from "~/utils/errors";
 import { env } from "~/env.server";
 import { customMcpOAuthSession } from "./api.v1.oauth.custom-mcp";
 import { prisma } from "~/db.server";
@@ -111,14 +112,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
         )}`,
       },
     });
-  } catch (error: any) {
-    logger.error("Custom MCP OAuth callback error:", error);
+  } catch (error) {
+    logger.error("Custom MCP OAuth callback error:", { error });
 
     return new Response(null, {
       status: 302,
       headers: {
         Location: `${redirectURL}?success=false&error=${encodeURIComponent(
-          error.message || "OAuth callback failed"
+          getErrorMessage(error) || "OAuth callback failed"
         )}`,
       },
     });

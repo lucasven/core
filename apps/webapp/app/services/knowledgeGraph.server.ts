@@ -26,8 +26,12 @@ import {
 } from "./graphModels/statement";
 import {
   getEmbedding,
+  getWorkspaceEmbeddingModel,
   makeModelCall,
   makeStructuredModelCall,
+  getModelForTaskType,
+  getModel,
+  type TaskType,
 } from "~/lib/model.server";
 import { normalizePrompt, normalizeDocumentPrompt } from "./prompts";
 import { type EpisodeEmbedding, type PrismaClient } from "@prisma/client";
@@ -42,9 +46,35 @@ import { type ModelMessage } from "ai";
 // Default number of previous episodes to retrieve for context
 const DEFAULT_EPISODE_WINDOW = 5;
 
+export interface KnowledgeGraphServiceOptions {
+  embeddingModel?: string;
+  taskModels?: Partial<Record<TaskType, string>>;
+  defaultModel?: string;
+}
+
 export class KnowledgeGraphService {
+  private embeddingModel?: string;
+  private taskModels?: Partial<Record<TaskType, string>>;
+  private defaultModel?: string;
+
+  constructor(options?: KnowledgeGraphServiceOptions) {
+    this.embeddingModel = options?.embeddingModel;
+    this.taskModels = options?.taskModels;
+    this.defaultModel = options?.defaultModel;
+  }
+
+  /**
+   * Get the model for a specific task type, respecting workspace overrides.
+   */
+  private getModelForTask(taskType: TaskType): string {
+    return getModelForTaskType(taskType, {
+      taskModels: this.taskModels,
+      model: this.defaultModel,
+    });
+  }
+
   async getEmbedding(text: string) {
-    return getEmbedding(text);
+    return getEmbedding(text, this.embeddingModel);
   }
   /**
    * Process an episode and update the knowledge graph.
@@ -576,7 +606,11 @@ export class KnowledgeGraphService {
       contentType === EpisodeTypeEnum.DOCUMENT
         ? normalizeDocumentPrompt(context)
         : normalizePrompt(context);
-    // Normalization is LOW complexity (text cleaning and standardization)
+
+    // Normalization - use task-specific model if configured
+    const normalizationModel = this.getModelForTask("normalization");
+    const normalizationModelInstance = getModel(normalizationModel);
+
     let responseText = "";
     await makeModelCall(
       false,
@@ -590,7 +624,7 @@ export class KnowledgeGraphService {
           tokenMetrics.high.cached += (usage.cachedInputTokens as number) || 0;
         }
       },
-      undefined,
+      { model: normalizationModelInstance },
       "high",
       "normalization",
     );

@@ -24,6 +24,10 @@ import {
   handleGatewayToolCall,
 } from "~/services/agent/gateway-operations";
 import { getUserTimezone } from "~/models/user.server";
+import {
+  fireLifecycleHook,
+  MCPLifecycleEvent,
+} from "~/utils/mcp/lifecycle-hooks";
 
 const QueryParams = z.object({
   source: z.string().optional(),
@@ -387,6 +391,17 @@ async function createTransport(
 
       // Store main transport
       TransportManager.setMainTransport(sessionId, transport);
+
+      // Fire session start lifecycle hook
+      fireLifecycleHook(MCPLifecycleEvent.SESSION_START, {
+        sessionId,
+        userId,
+        workspaceId,
+        source,
+        timestamp: new Date(),
+      }).catch((error) => {
+        logger.error(`Error firing SESSION_START hook: ${error}`);
+      });
     },
   });
 
@@ -405,6 +420,20 @@ async function createTransport(
   transport.onclose = async () => {
     try {
       clearInterval(keepAlive);
+
+      // Fire session end lifecycle hook (before cleanup)
+      try {
+        await fireLifecycleHook(MCPLifecycleEvent.SESSION_END, {
+          sessionId,
+          userId,
+          workspaceId,
+          source,
+          timestamp: new Date(),
+        });
+      } catch (error) {
+        logger.error(`Error firing SESSION_END hook: ${error}`);
+      }
+
       await MCPSessionManager.deleteSession(sessionId);
       await TransportManager.cleanupSession(sessionId);
     } catch (e) {

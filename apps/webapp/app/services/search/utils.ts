@@ -95,8 +95,8 @@ export async function performVectorSearch(
       userId,
       workspaceId,
       labelIds: options.labelIds.length > 0 ? options.labelIds : undefined,
-      threshold: 0.5,
-      limit: 100,
+      threshold: 0.35,
+      limit: 150,
     });
 
     if (scoredStatements.length === 0) {
@@ -170,8 +170,8 @@ export async function performEpisodeVectorSearch(
       userId,
       workspaceId,
       labelIds: options.labelIds.length > 0 ? options.labelIds : undefined,
-      threshold: 0.5,
-      limit: 50,
+      threshold: 0.35,
+      limit: 75,
     });
 
     if (scoredEpisodes.length === 0) {
@@ -347,8 +347,8 @@ async function bfsTraversal(
   statements: StatementNode[];
   hopDistanceMap: Map<string, number>;
 }> {
-  const RELEVANCE_THRESHOLD = 0.65;
-  const EXPLORATION_THRESHOLD = 0.3;
+  const RELEVANCE_THRESHOLD = 0.5; // Lowered from 0.65 for broader results
+  const EXPLORATION_THRESHOLD = 0.2; // Lowered from 0.3 for more exploration
   const EARLY_TERMINATION_THRESHOLD = 50; // Stop if we have enough high-quality results
 
   const allStatements = new Map<
@@ -533,6 +533,7 @@ export async function extractEntitiesFromQuery(
   userId: string,
   workspaceId: string,
   startEntities: string[] = [],
+  embeddingModel?: string,
 ): Promise<EntityNode[]> {
   try {
     let chunkEmbeddings: Embedding[] = [];
@@ -541,11 +542,11 @@ export async function extractEntitiesFromQuery(
       const chunks = generateQueryChunks(query);
       // Get embeddings for each chunk
       chunkEmbeddings = await Promise.all(
-        chunks.map((chunk) => getEmbedding(chunk)),
+        chunks.map((chunk) => getEmbedding(chunk, embeddingModel)),
       );
     } else {
       chunkEmbeddings = await Promise.all(
-        startEntities.map((chunk) => getEmbedding(chunk)),
+        startEntities.map((chunk) => getEmbedding(chunk, embeddingModel)),
       );
     }
 

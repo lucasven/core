@@ -17,11 +17,13 @@ export interface SearchOptions {
   labelIds?: string[]; // Filter results by specific spaces
   adaptiveFiltering?: boolean;
   structured?: boolean; // Return structured JSON instead of markdown (default: false)
-  useLLMValidation?: boolean; // Use LLM to validate episodes for borderline confidence cases (default: false)
+  useLLMValidation?: boolean; // Use LLM to validate episodes for borderline confidence cases (default: true)
   qualityThreshold?: number; // Minimum episode score to be considered high-quality (default: 5.0)
   maxEpisodesForLLM?: number; // Maximum episodes to send for LLM validation (default: 20)
   sortBy?: "relevance" | "recency"; // Sort results by relevance (default) or recency (newest first)
   tokenBudget?: number; // Token budget for recall output (default: 10000). Drops least relevant episodes from tail until total tokens <= budget
+  broadSearch?: boolean; // Skip aggressive filtering, return more comprehensive results (default: false)
+  mode?: "index" | "details" | "full"; // Retrieval depth: index (refs + token costs), details (previews), full (complete content)
 }
 
 /**

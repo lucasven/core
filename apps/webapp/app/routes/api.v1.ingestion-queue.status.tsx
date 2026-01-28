@@ -6,12 +6,32 @@ import { requireUser, requireUserId } from "~/services/session.server";
 const PROCESSING_STALE_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour for PROCESSING items
 const PENDING_STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours for PENDING items
 
+// Stale job timeout - jobs processing for longer than this are considered stuck
+const STALE_JOB_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+
 export async function loader({ request }: LoaderFunctionArgs) {
   const { workspaceId} = await requireUser(request);
 
   if (!workspaceId) {
     throw new Response("Workspace not found", { status: 404 });
   }
+
+  // Clean up stale PROCESSING jobs (stuck for more than 10 minutes)
+  const staleThreshold = new Date(Date.now() - STALE_JOB_TIMEOUT_MS);
+  await prisma.ingestionQueue.updateMany({
+    where: {
+      workspaceId: user.Workspace.id,
+      status: "PROCESSING",
+      updatedAt: {
+        lt: staleThreshold,
+      },
+    },
+    data: {
+      status: "FAILED",
+      error:
+        "Job timed out - marked as failed after being stuck in processing state",
+    },
+  });
 
   const activeIngestionQueue = await prisma.ingestionQueue.findMany({
     where: {

@@ -6,6 +6,9 @@ import {
   User,
   Tag,
   Building,
+  Bot,
+  Search,
+  ListTodo,
 } from "lucide-react";
 
 import {
@@ -50,6 +53,9 @@ export default function Settings() {
   const data = {
     nav: [
       { name: "Account", icon: User, path: "account" },
+      { name: "Model", icon: Bot, path: "model" },
+      { name: "Tasks", icon: ListTodo, path: "tasks" },
+      { name: "Search", icon: Search, path: "search" },
       { name: "Billing", icon: CreditCard, path: "billing" },
       { name: "API", icon: Code, path: "api" },
       { name: "Webhooks", icon: Webhook, path: "webhooks" },

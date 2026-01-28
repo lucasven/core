@@ -1,8 +1,9 @@
 import { conversationTitlePrompt } from "~/trigger/conversation/prompt";
 import { prisma } from "~/db.server";
 import { logger } from "~/services/logger.service";
+import { getErrorMessage } from "~/utils/errors";
 import { generateText, type LanguageModel } from "ai";
-import { getModel } from "~/lib/model.server";
+import { getModel, getWorkspaceChatModel } from "~/lib/model.server";
 
 export interface CreateConversationTitlePayload {
   conversationId: string;
@@ -23,9 +24,22 @@ export async function processConversationTitleCreation(
   payload: CreateConversationTitlePayload,
 ): Promise<CreateConversationTitleResult> {
   try {
+    // Fetch conversation to get workspace for model configuration
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: payload.conversationId },
+      include: {
+        user: {
+          include: { Workspace: { select: { metadata: true } } },
+        },
+      },
+    });
+    const chatModel = getWorkspaceChatModel(
+      conversation?.user?.Workspace?.metadata as { model?: string } | undefined,
+    );
+
     let conversationTitleResponse = "";
     const { text } = await generateText({
-      model: getModel() as LanguageModel,
+      model: getModel(chatModel) as LanguageModel,
       messages: [
         {
           role: "user",
@@ -69,14 +83,14 @@ export async function processConversationTitleCreation(
       success: false,
       error: "No title generated",
     };
-  } catch (error: any) {
+  } catch (error) {
     logger.error(
       `Error creating conversation title for ${payload.conversationId}:`,
-      error,
+      { error },
     );
     return {
       success: false,
-      error: error.message,
+      error: getErrorMessage(error),
     };
   }
 }

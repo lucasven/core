@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { ArrowLeft } from "lucide-react";
+import { useTypedRouteLoaderData } from "remix-typedjson";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Button } from "../ui";
 import { type Provider, OnboardingStep } from "./types";
 import { ProviderSelectionStep } from "./provider-selection-step";
 import { InstallationStepsView } from "./installation-steps-view";
-import { PROVIDER_CONFIGS } from "./provider-config";
+import { getProviderConfigs } from "./provider-config";
+import type { loader as rootLoader } from "~/root";
 
 interface OnboardingModalProps {
   isOpen: boolean;
@@ -20,6 +22,10 @@ export function OnboardingModal({
   onComplete,
   preselectedProvider,
 }: OnboardingModalProps) {
+  const rootData = useTypedRouteLoaderData<typeof rootLoader>("root");
+  const appOrigin = rootData?.appOrigin;
+  const providerConfigs = getProviderConfigs(appOrigin);
+
   const [currentStep, setCurrentStep] = useState<OnboardingStep>(
     preselectedProvider
       ? OnboardingStep.INSTALLATION_STEPS
@@ -76,7 +82,7 @@ export function OnboardingModal({
                 <ArrowLeft className="h-4 w-4" />
               </Button>
             )}
-            <DialogTitle className="text-xl">Connect to Core {selectedProvider ? `with ${PROVIDER_CONFIGS[selectedProvider].name}` : null}</DialogTitle>
+            <DialogTitle className="text-xl">Connect to Core {selectedProvider ? `with ${providerConfigs[selectedProvider].name}` : null}</DialogTitle>
           </div>
         </DialogHeader>
 
@@ -94,7 +100,7 @@ export function OnboardingModal({
             selectedProvider && (
               <InstallationStepsView
                 provider={selectedProvider}
-                providerConfig={PROVIDER_CONFIGS[selectedProvider]}
+                providerConfig={providerConfigs[selectedProvider]}
                 onComplete={handleComplete}
               />
             )}

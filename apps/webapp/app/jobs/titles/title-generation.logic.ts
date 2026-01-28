@@ -4,8 +4,13 @@
  * Uses LLM to generate appropriate titles for episodes based on their content and type
  */
 
-import { makeModelCall } from "~/lib/model.server";
+import {
+  makeModelCall,
+  getModelForTaskType,
+  getModel,
+} from "~/lib/model.server";
 import { logger } from "~/services/logger.service";
+import { getErrorMessage } from "~/utils/errors";
 import { prisma } from "~/db.server";
 import { EpisodeType } from "@core/types";
 
@@ -29,6 +34,23 @@ export async function processTitleGeneration(
 ): Promise<TitleGenerationResult> {
   try {
     logger.info(`Processing title generation for queue ${payload.queueId}`);
+
+    // Fetch workspace metadata for task model configuration
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: payload.workspaceId },
+      select: { metadata: true },
+    });
+    const metadata = workspace?.metadata as
+      | {
+          model?: string;
+          taskModels?: Record<string, string>;
+        }
+      | undefined;
+
+    const titleGenerationModel = getModelForTaskType("titleGeneration", {
+      taskModels: metadata?.taskModels,
+      model: metadata?.model,
+    });
 
     // Fetch the ingestion queue entry
     const ingestionQueue = await prisma.ingestionQueue.findUnique({
@@ -78,7 +100,11 @@ export async function processTitleGeneration(
     // Handle different types
     if (episodeType === EpisodeType.DOCUMENT) {
       // For documents, just pass the document content to get title
-      title = await generateTitleFromContent(episodeBody, "document");
+      title = await generateTitleFromContent(
+        episodeBody,
+        "document",
+        titleGenerationModel,
+      );
     } else if (episodeType === EpisodeType.CONVERSATION) {
       if (sessionId) {
         // For conversations with sessionId, fetch other episodes in the same session
@@ -87,10 +113,15 @@ export async function processTitleGeneration(
           sessionId,
           payload.queueId,
           payload.workspaceId,
+          titleGenerationModel,
         );
       } else {
         // For conversations without sessionId, just use the episode body
-        title = await generateTitleFromContent(episodeBody, "conversation");
+        title = await generateTitleFromContent(
+          episodeBody,
+          "conversation",
+          titleGenerationModel,
+        );
       }
     }
 
@@ -136,14 +167,14 @@ export async function processTitleGeneration(
       success: true,
       title,
     };
-  } catch (error: any) {
+  } catch (error) {
     logger.error(`Error processing title generation:`, {
-      error: error.message,
+      error: getErrorMessage(error),
       queueId: payload.queueId,
     });
     return {
       success: false,
-      error: error.message,
+      error: getErrorMessage(error),
     };
   }
 }
@@ -154,10 +185,13 @@ export async function processTitleGeneration(
 async function generateTitleFromContent(
   content: string,
   type: "document" | "conversation",
+  titleModel?: string,
 ): Promise<string> {
   const prompt = buildSimpleTitlePrompt(content, type);
 
   let responseText = "";
+  const modelInstance = titleModel ? getModel(titleModel) : undefined;
+
   await makeModelCall(
     false,
     [{ role: "user", content: prompt }],
@@ -166,6 +200,7 @@ async function generateTitleFromContent(
     },
     {
       temperature: 0.5,
+      ...(modelInstance && { model: modelInstance }),
     },
     "low",
     "title-generation",
@@ -183,6 +218,7 @@ async function generateTitleForConversationWithSession(
   sessionId: string,
   currentQueueId: string,
   workspaceId: string,
+  titleModel?: string,
 ): Promise<string> {
   // Fetch other episodes in the same session
   const sessionQueues = await prisma.ingestionQueue.findMany({
@@ -220,6 +256,8 @@ async function generateTitleForConversationWithSession(
   );
 
   let responseText = "";
+  const modelInstance = titleModel ? getModel(titleModel) : undefined;
+
   await makeModelCall(
     false,
     [{ role: "user", content: prompt }],
@@ -228,6 +266,7 @@ async function generateTitleForConversationWithSession(
     },
     {
       temperature: 0.5,
+      ...(modelInstance && { model: modelInstance }),
     },
     "low",
     "title-generation-session",

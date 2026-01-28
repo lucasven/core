@@ -1,4 +1,6 @@
 import type { Prisma, User } from "@core/database";
+
+export type { User };
 import type { GoogleProfile } from "@coji/remix-auth-google";
 import { prisma } from "~/db.server";
 import { env } from "~/env.server";

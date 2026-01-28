@@ -2,6 +2,8 @@ import { json } from "@remix-run/node";
 import { z } from "zod";
 import { createHybridLoaderApiRoute } from "~/services/routeBuilders/apiBuilder.server";
 import { getStatementsInvalidatedByEpisode } from "~/services/graphModels/episode";
+import { logger } from "~/services/logger.service";
+import { getErrorMessage } from "~/utils/errors";
 
 // Schema for query parameters
 const FactsQuerySchema = z.object({
@@ -56,8 +58,8 @@ export const loader = createHybridLoaderApiRoute(
         success: true,
         results, // Array of { episodeId, facts, invalidFacts }
       });
-    } catch (error: any) {
-      console.error("Error fetching episode facts:", error);
+    } catch (error) {
+      logger.error("Error fetching episode facts:", { error });
       return json(
         { success: false, error: "Failed to fetch episode facts" },
         { status: 500 },

@@ -13,6 +13,7 @@ import {
   type AddEpisodeResult,
 } from "@core/types";
 import { logger } from "~/services/logger.service";
+import { getErrorMessage } from "~/utils/errors";
 import { dedupeNodes } from "~/services/prompts/nodes";
 import { resolveStatementPrompt } from "~/services/prompts/statements";
 import {
@@ -358,14 +359,14 @@ export async function processGraphResolution(
         low: tokenMetrics.low,
       },
     };
-  } catch (error: any) {
+  } catch (error) {
     logger.error(`Error processing graph resolution:`, {
-      error: error.message,
+      error: getErrorMessage(error),
       episodeUuid: payload.episodeUuid,
     });
     return {
       success: false,
-      error: error.message,
+      error: getErrorMessage(error),
     };
   }
 }

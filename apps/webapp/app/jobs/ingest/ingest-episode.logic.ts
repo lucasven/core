@@ -5,6 +5,7 @@ import { logger } from "~/services/logger.service";
 import { prisma } from "~/db.server";
 import { type AddEpisodeResult, EpisodeType } from "@core/types";
 import { refundCredits } from "../credit_utils";
+import { getWorkspaceEmbeddingModel } from "~/lib/model.server";
 
 export const IngestBodyRequest = z.object({
   episodeBody: z.string().min(20),
@@ -97,7 +98,26 @@ export async function processEpisodeIngestion(
       // Continue processing anyway - the episode should still be added to the graph
     }
 
-    const knowledgeGraphService = new KnowledgeGraphService();
+    // Fetch workspace to get embedding model and task model configuration
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: payload.workspaceId },
+      select: { metadata: true },
+    });
+    const metadata = workspace?.metadata as
+      | {
+          embeddingModel?: string;
+          model?: string;
+          taskModels?: Record<string, string>;
+        }
+      | undefined;
+
+    const embeddingModel = getWorkspaceEmbeddingModel(metadata);
+
+    const knowledgeGraphService = new KnowledgeGraphService({
+      embeddingModel,
+      taskModels: metadata?.taskModels,
+      defaultModel: metadata?.model,
+    });
     const episodeBody = payload.body as any;
 
     // Fetch user name for user-centric extraction

@@ -9,8 +9,10 @@ import {
   streamText,
 } from "ai";
 import { logger } from "~/services/logger.service";
-import { getModel } from "~/lib/model.server";
+import { getModel, getWorkspaceChatModel } from "~/lib/model.server";
 import { searchMemoryWithAgent } from "~/services/agent/memory";
+import { getErrorMessage } from "~/utils/errors";
+import { prisma } from "~/db.server";
 
 const DeepSearchBodySchema = z.object({
   content: z.string().min(1, "Content is required"),
@@ -42,6 +44,15 @@ const { action, loader } = createActionApiRoute(
     );
 
     try {
+      // Fetch workspace to get model configuration
+      const user = await prisma.user.findUnique({
+        where: { id: authentication.userId },
+        include: { Workspace: { select: { metadata: true } } },
+      });
+      const chatModel = getWorkspaceChatModel(
+        user?.Workspace?.metadata as { model?: string } | undefined,
+      );
+
       // First, search for relevant information
       const results = await searchMemoryWithAgent(
         body.content,
@@ -80,7 +91,7 @@ Provide a clear, helpful summary based ONLY on the memory above. Do not add any 
 
       if (body.stream) {
         const result = streamText({
-          model: getModel() as LanguageModel,
+          model: getModel(chatModel) as LanguageModel,
           messages: [
             {
               role: "system",
@@ -96,7 +107,7 @@ Provide a clear, helpful summary based ONLY on the memory above. Do not add any 
         return result.toUIMessageStreamResponse({});
       } else {
         const { text } = await generateText({
-          model: getModel() as LanguageModel,
+          model: getModel(chatModel) as LanguageModel,
           messages: [
             {
               role: "system",
@@ -112,13 +123,12 @@ Provide a clear, helpful summary based ONLY on the memory above. Do not add any 
 
         return json({ text });
       }
-    } catch (error: any) {
-
-      logger.error(`Deep search error: ${error}`);
+    } catch (error) {
+      logger.error(`Deep search error: ${getErrorMessage(error)}`, { error });
 
       return json({
         success: false,
-        error: error.message,
+        error: getErrorMessage(error),
       });
     }
   },

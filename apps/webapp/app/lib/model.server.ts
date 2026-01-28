@@ -16,6 +16,14 @@ import { logger } from "~/services/logger.service";
 import { createOllama } from "ollama-ai-provider-v2";
 import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+
+import {
+  getLocalEmbedding,
+  isLocalEmbeddingModel,
+  LOCAL_EMBEDDING_MODELS,
+  type LocalEmbeddingModelKey,
+} from "./local-embeddings.server";
 
 export type ModelComplexity = "high" | "low";
 
@@ -25,7 +33,11 @@ export type ModelComplexity = "high" | "low";
  * LOW complexity automatically downgrades to cheaper variants if possible.
  */
 export function getModelForTask(complexity: ModelComplexity = "high"): string {
-  const baseModel = process.env.MODEL || "gpt-4.1-2025-04-14";
+  // Smart default: use OpenRouter format if OpenRouter key is available
+  const defaultModel = process.env.OPENROUTER_API_KEY
+    ? "openai/gpt-4.1"
+    : "gpt-4.1-2025-04-14";
+  const baseModel = process.env.MODEL || defaultModel;
 
   // HIGH complexity - always use the configured model
   if (complexity === "high") {
@@ -52,6 +64,15 @@ export function getModelForTask(complexity: ModelComplexity = "high"): string {
 
     // AWS Bedrock downgrades (keep same model - already cost-optimized)
     "us.amazon.nova-premier-v1:0": "us.amazon.nova-premier-v1:0",
+
+    // OpenRouter downgrades
+    "deepseek/deepseek-chat-v3": "deepseek/deepseek-chat-v3", // already cheap
+    "deepseek/deepseek-reasoner": "deepseek/deepseek-chat-v3",
+    "meta-llama/llama-3.3-70b-instruct": "meta-llama/llama-3.1-8b-instruct",
+    "mistral/mistral-large-latest": "mistral/mistral-small-latest",
+    "google/gemini-2.0-flash-001": "google/gemini-2.0-flash-lite-001",
+    "anthropic/claude-sonnet-4": "anthropic/claude-3-5-haiku",
+    "openai/gpt-4.1": "openai/gpt-4.1-mini",
   };
 
   return downgrades[baseModel] || baseModel;
@@ -94,6 +115,16 @@ export const getModel = (takeModel?: string) => {
     modelInstance = ollama(model || "llama2"); // Default to llama2 if no model specified
   } else {
     // If no Ollama, check other models
+
+    // Check for OpenRouter models (format: provider/model, e.g., deepseek/deepseek-chat-v3)
+    if (model.includes("/")) {
+      const openrouterKey = process.env.OPENROUTER_API_KEY;
+      if (!openrouterKey) {
+        throw new Error("No OpenRouter API key found. Set OPENROUTER_API_KEY");
+      }
+      const openrouter = createOpenRouter({ apiKey: openrouterKey });
+      return openrouter.chat(model);
+    }
 
     if (model.includes("claude")) {
       if (!anthropicKey) {
@@ -301,7 +332,21 @@ export function isProprietaryModel(
   const model = modelName || getModelForTask(complexity);
   if (!model) return false;
 
-  // Proprietary model patterns
+  // OpenRouter models - check the model part after provider/
+  if (model.includes("/")) {
+    const modelPart = model.split("/")[1] || "";
+    // Open source models on OpenRouter
+    const openSourcePatterns = [
+      /^llama/,
+      /^mistral/,
+      /^deepseek/,
+      /^qwen/,
+      /^phi/,
+    ];
+    return !openSourcePatterns.some((pattern) => pattern.test(modelPart));
+  }
+
+  // Direct API proprietary patterns
   const proprietaryPatterns = [
     /^gpt-/, // OpenAI models
     /^claude-/, // Anthropic models
@@ -312,35 +357,163 @@ export function isProprietaryModel(
   return proprietaryPatterns.some((pattern) => pattern.test(model));
 }
 
-export async function getEmbedding(text: string) {
+/**
+ * Task types that can have per-task model configuration.
+ */
+export type TaskType =
+  | "normalization"
+  | "entityExtraction"
+  | "statementExtraction"
+  | "sessionCompaction"
+  | "titleGeneration"
+  | "labelAssignment";
+
+/**
+ * Get the model for a specific task type, respecting workspace overrides.
+ * Falls back to: taskModels[taskType] -> workspace model -> env MODEL -> default
+ */
+export function getModelForTaskType(
+  taskType: TaskType,
+  workspaceMetadata?: {
+    taskModels?: Partial<Record<TaskType, string>>;
+    model?: string;
+  },
+  complexity: ModelComplexity = "high",
+): string {
+  // Check task-specific override first
+  if (workspaceMetadata?.taskModels?.[taskType]) {
+    return workspaceMetadata.taskModels[taskType]!;
+  }
+
+  // Fall back to workspace default model
+  if (workspaceMetadata?.model) {
+    return workspaceMetadata.model;
+  }
+
+  // Fall back to complexity-based routing
+  return getModelForTask(complexity);
+}
+
+/**
+ * Get the chat model configuration from workspace metadata or environment.
+ * This helper allows callers with workspace context to use workspace-specific models.
+ */
+export function getWorkspaceChatModel(workspaceMetadata?: {
+  model?: string;
+}): string {
+  if (workspaceMetadata?.model) {
+    return workspaceMetadata.model;
+  }
+
+  if (process.env.MODEL) {
+    return process.env.MODEL;
+  }
+
+  // Smart default: use OpenRouter format if OpenRouter key is available,
+  // otherwise fall back to OpenAI format (requires OPENAI_API_KEY)
+  if (process.env.OPENROUTER_API_KEY) {
+    return "openai/gpt-4.1";
+  }
+
+  return "gpt-4.1-2025-04-14";
+}
+
+/**
+ * Get the embedding model configuration from workspace metadata or environment.
+ * This helper allows callers with workspace context to pass the model to getEmbedding.
+ */
+export function getWorkspaceEmbeddingModel(workspaceMetadata?: {
+  embeddingModel?: string;
+}): string {
+  if (workspaceMetadata?.embeddingModel) {
+    return workspaceMetadata.embeddingModel;
+  }
+
+  if (process.env.EMBEDDING_MODEL) {
+    return process.env.EMBEDDING_MODEL;
+  }
+
+  // Smart default: use OpenRouter format if OpenRouter key is available,
+  // otherwise fall back to OpenAI format (requires OPENAI_API_KEY)
+  if (process.env.OPENROUTER_API_KEY) {
+    return "openai/text-embedding-3-small";
+  }
+
+  return "text-embedding-3-small";
+}
+
+/**
+ * Generate embeddings for text.
+ * @param text The text to embed
+ * @param embeddingModel Optional embedding model to use (from workspace settings)
+ *                       If not provided, falls back to EMBEDDING_MODEL env var
+ */
+export async function getEmbedding(text: string, embeddingModel?: string) {
   const ollamaUrl = process.env.OLLAMA_URL;
-  const model = process.env.EMBEDDING_MODEL;
+  const model = embeddingModel || process.env.EMBEDDING_MODEL;
   const maxRetries = 3;
   let lastEmbedding: number[] = [];
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      if (model === "text-embedding-3-small") {
-        // Use OpenAI embedding model when explicitly requested
+      // Local embeddings (free, runs in Node.js via @huggingface/transformers)
+      if (model && isLocalEmbeddingModel(model)) {
+        logger.info(`[LocalEmbeddings] Using local model: ${model}`);
+        lastEmbedding = await getLocalEmbedding(text, model);
+        if (lastEmbedding.length > 0) {
+          return lastEmbedding;
+        }
+        if (attempt < maxRetries) {
+          logger.warn(
+            `Attempt ${attempt}/${maxRetries}: Got empty local embedding, retrying...`,
+          );
+        }
+        continue;
+      }
+
+      // OpenRouter embeddings (format: provider/model, e.g., openai/text-embedding-3-small)
+      if (model?.includes("/")) {
+        const openrouterKey = process.env.OPENROUTER_API_KEY;
+        if (!openrouterKey) {
+          throw new Error(
+            "No OpenRouter API key found for embeddings. Set OPENROUTER_API_KEY",
+          );
+        }
+        const openrouter = createOpenRouter({ apiKey: openrouterKey });
         const { embedding } = await embed({
-          model: openai.embedding("text-embedding-3-small"),
+          model: openrouter.embedding(model),
+          value: text,
+        });
+        lastEmbedding = embedding;
+      } else if (
+        model === "text-embedding-3-small" ||
+        model === "text-embedding-3-large" ||
+        model === "text-embedding-ada-002"
+      ) {
+        // Use OpenAI embedding model when explicitly requested
+        const openaiKey = process.env.OPENAI_API_KEY;
+        if (!openaiKey) {
+          throw new Error(
+            `No OpenAI API key found for embedding model "${model}". Set OPENAI_API_KEY or use OpenRouter format (e.g., openai/text-embedding-3-small)`,
+          );
+        }
+        const { embedding } = await embed({
+          model: openai.embedding(model),
           value: text,
         });
         lastEmbedding = embedding;
       } else {
-        // Use Ollama's OpenAI-compatible endpoint for embeddings
-        // This avoids EmbeddingModelV3/V2 compatibility issues with third-party providers
-        // Normalize the URL: remove trailing slash, /api, and /v1 if present, then add /v1
-        const baseUrl = ollamaUrl
-          ?.replace(/\/+$/, "")
-          .replace(/\/v1$/, "")
-          .replace(/\/api$/, "");
-        const ollamaOpenAI = createOpenAI({
-          baseURL: `${baseUrl}/v1`,
-          apiKey: "ollama", // Required but not used by Ollama
+        // Ollama embeddings (local models like mxbai-embed-large)
+        if (!ollamaUrl) {
+          throw new Error(
+            `No Ollama URL found for embedding model "${model}". Set OLLAMA_URL or use a different embedding model`,
+          );
+        }
+        const ollama = createOllama({
+          baseURL: ollamaUrl,
         });
         const { embedding } = await embed({
-          model: ollamaOpenAI.embedding(model as string),
+          model: ollama.embedding(model as string),
           value: text,
         });
         lastEmbedding = embedding;

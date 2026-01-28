@@ -1,7 +1,11 @@
+import { ExternalLink } from "lucide-react";
+import { useTypedRouteLoaderData } from "remix-typedjson";
 import { Button } from "../ui";
-import { PROVIDER_CONFIGS } from "./provider-config";
+import { getProviderConfigs } from "./provider-config";
 import { type Provider } from "./types";
 import { getIconForAuthorise } from "../icon-utils";
+import { type InstallationStep, InstallationSteps } from "./installation-steps";
+import type { loader as rootLoader } from "~/root";
 
 interface ProviderSelectionStepProps {
   selectedProvider?: Provider;
@@ -15,7 +19,19 @@ export function ProviderSelectionStep({
   onSelectProvider,
   onContinue,
 }: ProviderSelectionStepProps) {
-  const providers = Object.values(PROVIDER_CONFIGS);
+  const rootData = useTypedRouteLoaderData<typeof rootLoader>("root");
+  const appOrigin = rootData?.appOrigin;
+  const providerConfigs = getProviderConfigs(appOrigin);
+  const providers = Object.values(providerConfigs);
+
+  // Example installation steps for when a provider is selected
+  // This can be customized per provider
+  const getInstallationSteps = (provider: Provider): InstallationStep[] => {
+    const providerConfig = providerConfigs[provider];
+
+    // Example steps - customize based on the provider
+    return providerConfig.installationSteps;
+  };
 
   return (
     <div className="space-y-4">
@@ -54,6 +70,37 @@ export function ProviderSelectionStep({
         })}
       </div>
 
+      {selectedProvider && (
+        <div className="mt-4 space-y-4 border-t border-gray-300 p-4">
+          <InstallationSteps
+            title={`Connect Core in ${providerConfigs[selectedProvider].name}`}
+            steps={getInstallationSteps(selectedProvider)}
+          />
+
+          <div className="mt-4 flex items-center gap-2 border-t border-gray-200 pt-4">
+            <a
+              href={providerConfigs[selectedProvider].docsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:bg-grayAlpha-200 inline-flex items-center gap-2 rounded-md border border-gray-300 px-4 py-2 text-sm font-medium transition-colors"
+            >
+              View Full Documentation
+              <ExternalLink className="h-4 w-4" />
+            </a>
+          </div>
+        </div>
+      )}
+
+      <div className="flex justify-end">
+        <Button
+          onClick={onContinue}
+          disabled={!selectedProvider}
+          size="lg"
+          variant="secondary"
+        >
+          Continue to Setup
+        </Button>
+      </div>
     </div>
   );
 }

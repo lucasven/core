@@ -1,5 +1,5 @@
 {
-  "exclude": [],
+  "exclude": ["prisma/migrations/neo4j-*.ts"],
   "include": [
     "remix.env.d.ts",
     "global.d.ts",

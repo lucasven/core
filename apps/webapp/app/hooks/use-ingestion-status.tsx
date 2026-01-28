@@ -55,7 +55,7 @@ export function useIngestionStatus() {
 
   useEffect(() => {
     if (fetcher.data) {
-      const activeRecords = hasActiveRecords(fetcher.data);
+      const activeRecords = hasActiveRecords(fetcher.data as IngestionStatusResponse);
       
       if (activeRecords && !isPolling) {
         // Start polling if we have active records and aren't already polling

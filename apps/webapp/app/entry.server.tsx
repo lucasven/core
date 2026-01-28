@@ -107,7 +107,7 @@ function handleBotRequest(
     let shellRendered = false;
     const { pipe, abort } = renderToPipeableStream(
       <RemixServer
-        context={remixContext}
+        context={remixContext as Parameters<typeof RemixServer>[0]["context"]}
         url={request.url}
         abortDelay={ABORT_DELAY}
       />,
@@ -157,7 +157,7 @@ function handleBrowserRequest(
     let shellRendered = false;
     const { pipe, abort } = renderToPipeableStream(
       <RemixServer
-        context={remixContext}
+        context={remixContext as Parameters<typeof RemixServer>[0]["context"]}
         url={request.url}
         abortDelay={ABORT_DELAY}
       />,

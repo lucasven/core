@@ -6,8 +6,13 @@
  */
 
 import { z } from "zod";
-import { makeStructuredModelCall, getEmbedding } from "~/lib/model.server";
+import {
+  makeStructuredModelCall,
+  getEmbedding,
+  getModelForTaskType,
+} from "~/lib/model.server";
 import { logger } from "~/services/logger.service";
+import { getErrorMessage } from "~/utils/errors";
 import { prisma } from "~/db.server";
 import { LabelService } from "~/services/label.server";
 import { updateEpisodeLabels } from "~/services/graphModels/episode";
@@ -63,6 +68,23 @@ export async function processLabelAssignment(
 ): Promise<LabelAssignmentResult> {
   try {
     logger.info(`Processing label assignment for queue ${payload.queueId}`);
+
+    // Fetch workspace metadata for task model configuration
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: payload.workspaceId },
+      select: { metadata: true },
+    });
+    const metadata = workspace?.metadata as
+      | {
+          model?: string;
+          taskModels?: Record<string, string>;
+        }
+      | undefined;
+
+    const labelAssignmentModel = getModelForTaskType("labelAssignment", {
+      taskModels: metadata?.taskModels,
+      model: metadata?.model,
+    });
 
     // Fetch the ingestion queue entry
     const ingestionQueue = await prisma.ingestionQueue.findUnique({
@@ -126,6 +148,7 @@ export async function processLabelAssignment(
         description: l.description,
       })),
       payload.workspaceId,
+      labelAssignmentModel,
     );
 
     // Separate matched vs new labels
@@ -266,14 +289,14 @@ export async function processLabelAssignment(
       assignedLabels: allLabelIds,
       suggestedLabels: undefined, // All labels are now created and assigned
     };
-  } catch (error: any) {
+  } catch (error) {
     logger.error(`Error processing label assignment:`, {
-      error: error.message,
+      error: getErrorMessage(error),
       queueId: payload.queueId,
     });
     return {
       success: false,
-      error: error.message,
+      error: getErrorMessage(error),
     };
   }
 }
@@ -290,12 +313,14 @@ export async function extractLabelsFromEpisode(
     description: string | null;
   }>,
   workspaceId: string,
+  labelModel?: string,
 ): Promise<ExtractedLabel[]> {
   const messages = buildLabelExtractionMessages(episodeBody, availableLabels);
 
   logger.info("Extracting labels from episode", {
     episodeLength: episodeBody.length,
     availableLabelCount: availableLabels.length,
+    model: labelModel,
   });
 
   const { object: response } = await makeStructuredModelCall(

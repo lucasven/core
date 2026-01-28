@@ -221,7 +221,7 @@ export async function callMemoryTool(
       case "memory_about_user":
         return await handleUserProfile(args.workspaceId);
       case "initialize_conversation_session":
-        return await handleGetSessionId();
+        return await handleGetSessionId(args.sessionId);
       case "get_integrations":
         return await handleGetIntegrations({ ...args, userId });
       case "get_integration_actions":

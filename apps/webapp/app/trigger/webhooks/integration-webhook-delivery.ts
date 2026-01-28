@@ -1,5 +1,6 @@
 import { queue, task } from "@trigger.dev/sdk";
 import { logger } from "~/services/logger.service";
+import { getErrorMessage } from "~/utils/errors";
 import {
   deliverWebhook,
   type WebhookEventType,
@@ -181,10 +182,10 @@ export async function triggerIntegrationWebhook(
     logger.log(
       `Triggered OAuth integration webhook delivery for integration account ${integrationAccountId}`,
     );
-  } catch (error: any) {
+  } catch (error) {
     logger.error(
       `Failed to trigger OAuth integration webhook delivery for integration account ${integrationAccountId}:`,
-      { error: error instanceof Error ? error.message : String(error) },
+      { error: getErrorMessage(error) },
     );
   }
 }

@@ -2,6 +2,8 @@ import { json, type LoaderFunctionArgs } from "@remix-run/node";
 import z from "zod";
 import { prisma } from "~/db.server";
 import { createHybridLoaderApiRoute } from "~/services/routeBuilders/apiBuilder.server";
+import { logger } from "~/services/logger.service";
+import { getErrorMessage } from "~/utils/errors";
 
 // Schema for space ID parameter
 const SessionParamsSchema = z.object({
@@ -75,9 +77,9 @@ export const loader = createHybridLoaderApiRoute(
         .filter((ep) => ep !== null);
 
       return json({ episodes, count: episodes.length });
-    } catch (error: any) {
-      console.error("Error fetching session episodes:", error);
-      return json({ error: error.message }, { status: 500 });
+    } catch (error) {
+      logger.error("Error fetching session episodes:", { error });
+      return json({ error: getErrorMessage(error) }, { status: 500 });
     }
   },
 );

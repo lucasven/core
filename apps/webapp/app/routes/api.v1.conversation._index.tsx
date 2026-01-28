@@ -13,8 +13,13 @@ import {
   upsertConversationHistory,
 } from "~/services/conversation.server";
 
-import { getModel } from "~/lib/model.server";
+import { getModel, getWorkspaceChatModel } from "~/lib/model.server";
 import { EpisodeType, UserTypeEnum } from "@core/types";
+import {
+  hasAnswer,
+  hasQuestion,
+  REACT_SYSTEM_PROMPT,
+} from "~/lib/prompt.server";
 import { enqueueCreateConversationTitle } from "~/lib/queue-adapter.server";
 import { addToQueue } from "~/lib/ingest.server";
 import { buildAgentContext } from "~/services/agent/agent-context";
@@ -124,8 +129,13 @@ const { loader, action } = createHybridActionApiRoute(
       conversationId: body.id,
     });
 
+    // Get workspace-specific chat model
+    const chatModel = getWorkspaceChatModel(
+      workspace?.metadata as { model?: string } | undefined,
+    );
+
     const result = streamText({
-      model: getModel() as LanguageModel,
+      model: getModel(chatModel) as LanguageModel,
       messages: [
         {
           role: "system",

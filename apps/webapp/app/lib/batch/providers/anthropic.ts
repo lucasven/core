@@ -86,19 +86,29 @@ export class AnthropicBatchProvider extends BaseBatchProvider {
       // If batch is completed, fetch results
       if (batch.processing_status === "ended") {
         try {
-          const batchResults =
+          const batchResultsIterator =
             await this.anthropicClient.messages.batches.results(params.batchId);
+
+          // Convert async iterable to array
+          const batchResults: Anthropic.Messages.Batches.MessageBatchIndividualResponse[] =
+            [];
+          for await (const item of batchResultsIterator) {
+            batchResults.push(item);
+          }
 
           results = batchResults.map((result) => {
             try {
               if (result.result.type === "succeeded") {
                 const message = result.result.message;
+                const firstContent = message.content[0];
                 let processedResponse: any =
-                  message.content[0]?.text || message.content;
+                  (firstContent && "text" in firstContent
+                    ? firstContent.text
+                    : null) || message.content;
 
                 // If tool was used for structured output, extract from tool response
-                if (message.content[0]?.type === "tool_use") {
-                  processedResponse = message.content[0].input;
+                if (firstContent?.type === "tool_use") {
+                  processedResponse = firstContent.input;
                 }
 
                 return {
@@ -106,11 +116,17 @@ export class AnthropicBatchProvider extends BaseBatchProvider {
                   response: processedResponse,
                 };
               } else {
+                const errorResult =
+                  result.result.type === "errored" ? result.result : null;
+                const errorInfo = errorResult?.error;
                 return {
                   customId: result.custom_id,
                   error: {
-                    code: result.result.error?.type || "unknown",
-                    message: result.result.error?.message || "Unknown error",
+                    code: errorInfo?.type || "unknown",
+                    message:
+                      (errorInfo && "message" in errorInfo
+                        ? (errorInfo as { message?: string }).message
+                        : null) || "Unknown error",
                     type: "api_error" as const,
                   },
                 };

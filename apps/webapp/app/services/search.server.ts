@@ -17,9 +17,12 @@ import {
   extractEntitiesFromQuery,
   type EpisodeGraphResult,
 } from "./search/utils";
-import { applyEpisodeReranking } from "./search/rerank";
+import {
+  applyEpisodeReranking,
+  applyMultiFactorReranking,
+} from "./search/rerank";
 import { applyTokenBudget, DEFAULT_TOKEN_BUDGET } from "./search/tokenBudget";
-import { getEmbedding } from "~/lib/model.server";
+import { getEmbedding, getWorkspaceEmbeddingModel } from "~/lib/model.server";
 import { prisma } from "~/db.server";
 import { encode } from "gpt-tokenizer/encoding/o200k_base";
 import { env } from "~/env.server";
@@ -27,12 +30,35 @@ import { getCompactedSessionBySessionId } from "./graphModels/compactedSession";
 import { ProviderFactory } from "@core/providers";
 
 /**
+ * Workspace search settings that can be configured in the UI
+ */
+export interface WorkspaceSearchSettings {
+  searchLimit?: number;
+  scoreThreshold?: number;
+  broadSearch?: boolean;
+  maxBfsDepth?: number;
+  includeInvalidated?: boolean;
+  useLLMValidation?: boolean;
+}
+
+/**
  * SearchService provides methods to search the reified + temporal knowledge graph
  * using a hybrid approach combining BM25, vector similarity, and BFS traversal.
  */
 export class SearchService {
+  private embeddingModel?: string;
+  private workspaceSettings?: WorkspaceSearchSettings;
+
+  constructor(options?: {
+    embeddingModel?: string;
+    workspaceSettings?: WorkspaceSearchSettings;
+  }) {
+    this.embeddingModel = options?.embeddingModel;
+    this.workspaceSettings = options?.workspaceSettings;
+  }
+
   async getEmbedding(text: string) {
-    return getEmbedding(text);
+    return getEmbedding(text, this.embeddingModel);
   }
 
   /**
@@ -69,28 +95,52 @@ export class SearchService {
       }
   > {
     const startTime = Date.now();
-    // Default options
 
-    const opts: Required<SearchOptions> = {
-      limit: options.limit || 10, // Maximum episodes in final response
-      maxBfsDepth: options.maxBfsDepth ?? 3, // Default to 1 hop (95% of value, 10x faster)
+    // Check if broad search mode is enabled (from options or workspace settings)
+    const isBroadSearch =
+      options.broadSearch ?? this.workspaceSettings?.broadSearch ?? false;
+
+    // Default options - merge workspace settings with passed options
+    // Broad search mode uses more lenient defaults
+    const opts: Required<SearchOptions> & { broadSearch: boolean } = {
+      limit:
+        options.limit ??
+        this.workspaceSettings?.searchLimit ??
+        (isBroadSearch ? 50 : 25),
+      maxBfsDepth:
+        options.maxBfsDepth ?? this.workspaceSettings?.maxBfsDepth ?? 3,
       validAt: options.validAt || new Date(),
       startTime: options.startTime || null,
       endTime: options.endTime || new Date(),
-      includeInvalidated: options.includeInvalidated || true,
+      includeInvalidated:
+        options.includeInvalidated ??
+        this.workspaceSettings?.includeInvalidated ??
+        true,
       entityTypes: options.entityTypes || [],
       predicateTypes: options.predicateTypes || [],
-      scoreThreshold: options.scoreThreshold || 0.7,
-      minResults: options.minResults || 10,
+      scoreThreshold:
+        options.scoreThreshold ??
+        this.workspaceSettings?.scoreThreshold ??
+        (isBroadSearch ? 0.25 : 0.4),
+      minResults: options.minResults ?? 15,
       labelIds: options.labelIds || [],
       adaptiveFiltering: options.adaptiveFiltering || false,
       structured: options.structured || false,
-      useLLMValidation: options.useLLMValidation || true,
-      qualityThreshold: options.qualityThreshold || 0.3,
-      maxEpisodesForLLM: options.maxEpisodesForLLM || 20,
+      useLLMValidation:
+        options.useLLMValidation ??
+        this.workspaceSettings?.useLLMValidation ??
+        !isBroadSearch,
+      qualityThreshold: options.qualityThreshold ?? 0.3,
+      maxEpisodesForLLM: options.maxEpisodesForLLM ?? 20,
       sortBy: options.sortBy || "relevance",
       tokenBudget: options.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
+      broadSearch: isBroadSearch,
+      mode: options.mode || "full",
     };
+
+    logger.info(
+      `Search mode: ${isBroadSearch ? "BROAD" : "precise"}, limit: ${opts.limit}, threshold: ${opts.scoreThreshold}`,
+    );
     // Enhance query with LLM to transform keyword soup into semantic query
 
     const queryVector = await this.getEmbedding(query);
@@ -99,7 +149,7 @@ export class SearchService {
 
     // Note: We still need to extract entities from graph for Episode Graph search
     // The LLM entities are just strings, we need EntityNode objects from the graph
-    const entities = await extractEntitiesFromQuery(query, userId, workspaceId, []);
+    const entities = await extractEntitiesFromQuery(query, userId, workspaceId, [], this.embeddingModel);
     logger.info(
       `Extracted entities ${entities.map((e: EntityNode) => e.name).join(", ")}`,
     );
@@ -196,26 +246,41 @@ export class SearchService {
         `episodes have matching entities`,
     );
 
-    // Filter episodes with 0 entity matches (only if query has entities)
-    // This removes irrelevant episodes that have no semantic connection to the query
-    if (queryEntityIds.length > 0) {
+    // Filter episodes with 0 entity matches - but be more lenient in broad search mode
+    // Only apply strict filtering if:
+    // 1. Not in broad search mode
+    // 2. Query has entities
+    // 3. We have enough results (>50) to afford filtering
+    const shouldApplyEntityFilter =
+      !opts.broadSearch &&
+      queryEntityIds.length > 0 &&
+      episodesWithProvenance.length > 50;
+
+    if (shouldApplyEntityFilter) {
       const beforeFilter = episodesWithProvenance.length;
-      episodesWithProvenance = episodesWithProvenance.filter(
+      const filtered = episodesWithProvenance.filter(
         (ep) => (ep.entityMatchCount || 0) > 0,
       );
 
-      logger.info(
-        `Entity filtering: ${episodesWithProvenance.length}/${beforeFilter} episodes kept ` +
-          `(removed ${beforeFilter - episodesWithProvenance.length} episodes with 0 entity matches)`,
-      );
-
-      // If filtering removed everything, log warning but continue
-      // (reranking will handle empty results gracefully)
-      if (episodesWithProvenance.length === 0) {
+      // Only apply filter if it doesn't remove too many results
+      if (filtered.length >= 10 || filtered.length >= beforeFilter * 0.3) {
+        episodesWithProvenance = filtered;
+        logger.info(
+          `Entity filtering: ${episodesWithProvenance.length}/${beforeFilter} episodes kept ` +
+            `(removed ${beforeFilter - episodesWithProvenance.length} episodes with 0 entity matches)`,
+        );
+      } else {
         logger.warn(
-          `Entity filtering removed all episodes - no episodes matched query entities`,
+          `Entity filtering would be too aggressive (${filtered.length}/${beforeFilter}), keeping all results`,
         );
       }
+    } else if (queryEntityIds.length > 0) {
+      const reason = opts.broadSearch
+        ? "broad search mode enabled"
+        : episodesWithProvenance.length <= 50
+          ? `only ${episodesWithProvenance.length} results (<=50)`
+          : "no entities extracted";
+      logger.info(`Skipping entity filtering: ${reason}`);
     } else {
       logger.info(
         `Skipping entity filtering: no entities extracted from query (semantic/abstract query)`,
@@ -369,7 +434,12 @@ export class SearchService {
         invalidatedFacts: factsData,
       });
     } else {
-      responseContent = this.formatAsMarkdown(unifiedEpisodes, factsData);
+      // Format based on retrieval mode
+      responseContent = this.formatAsMarkdown(
+        unifiedEpisodes,
+        factsData,
+        opts.mode,
+      );
     }
 
     // Estimate token count (rough approximation: 1 token ≈ 4 characters)
@@ -495,6 +565,10 @@ export class SearchService {
 
   /**
    * Format search results as markdown for agent consumption
+   * Supports three retrieval modes:
+   * - "index": References only with token cost estimates (minimal context)
+   * - "details": References with content previews (200 chars)
+   * - "full": Complete content (default)
    */
   formatAsMarkdown(
     episodes: Array<{
@@ -512,51 +586,132 @@ export class SearchService {
       invalidAt: Date | null;
       relevantScore: number;
     }>,
+    mode: "index" | "details" | "full" = "full",
   ): string {
     const sections: string[] = [];
 
-    // Add episodes/compacts section
-    if (episodes.length > 0) {
-      sections.push("## Recalled Relevant Context\n");
-
-      episodes.forEach((episode, index) => {
-        const date = episode.createdAt.toLocaleString("en-US", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        });
-
-        if (episode.isCompact) {
-          sections.push(`### 📦 Session Compact`);
-          sections.push(`**UUID**: ${episode.uuid}`);
-          sections.push(`**Created**: ${date}`);
-          if (episode.rerankScore !== undefined) {
-            sections.push(`**Relevance**: ${episode.rerankScore}`);
-          }
-          sections.push(""); // Empty line before content
-          sections.push(episode.content);
-          sections.push(""); // Empty line
-        } else {
-          sections.push(`### Episode ${index + 1}`);
-          sections.push(`**UUID**: ${episode.uuid}`);
-          sections.push(`**Created**: ${date}`);
-          if (episode.rerankScore !== undefined) {
-            sections.push(`**Relevance**: ${episode.rerankScore}`);
-          }
-          if (episode.labelIds.length > 0) {
-            sections.push(`**Labels**: ${episode.labelIds.join(", ")}`);
-          }
-          sections.push(""); // Empty line before content
-          sections.push(episode.content);
-          sections.push(""); // Empty line after
-        }
-      });
+    // Handle empty results
+    if (episodes.length === 0 && facts.length === 0) {
+      sections.push("*No relevant memories found.*\n");
+      return sections.join("\n");
     }
 
-    // Add invalidated facts section (only showing facts that are no longer valid)
-    if (facts.length > 0) {
+    // Add episodes/compacts section
+    if (episodes.length > 0) {
+      if (mode === "index") {
+        sections.push("## Memory Index\n");
+        sections.push(
+          "*Index mode: showing references with token costs. Use mode='details' or mode='full' for content.*\n",
+        );
+
+        // Calculate total tokens available
+        const totalTokens = episodes.reduce(
+          (sum, ep) => sum + this.estimateTokens(ep.content),
+          0,
+        );
+        sections.push(
+          `**Total available**: ${episodes.length} memories, ~${totalTokens} tokens\n`,
+        );
+
+        episodes.forEach((episode, index) => {
+          const date = episode.createdAt.toLocaleString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          });
+          const tokens = this.estimateTokens(episode.content);
+          const type = episode.isCompact
+            ? "📦 Compact"
+            : episode.isDocument
+              ? "📄 Document"
+              : "💬 Episode";
+          const relevance =
+            episode.rerankScore !== undefined
+              ? ` | rel: ${episode.rerankScore}`
+              : "";
+
+          sections.push(
+            `${index + 1}. ${type} | ${date} | ~${tokens} tokens${relevance}`,
+          );
+          sections.push(`   UUID: ${episode.uuid}`);
+        });
+      } else if (mode === "details") {
+        sections.push("## Memory Previews\n");
+        sections.push(
+          "*Details mode: showing previews. Use mode='full' for complete content.*\n",
+        );
+
+        episodes.forEach((episode, index) => {
+          const date = episode.createdAt.toLocaleString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+          const tokens = this.estimateTokens(episode.content);
+          const preview = this.getPreview(episode.content, 200);
+
+          if (episode.isCompact) {
+            sections.push(`### 📦 Session Compact`);
+          } else if (episode.isDocument) {
+            sections.push(`### 📄 Document ${index + 1}`);
+          } else {
+            sections.push(`### 💬 Episode ${index + 1}`);
+          }
+
+          sections.push(`**UUID**: ${episode.uuid}`);
+          sections.push(`**Created**: ${date} | **Tokens**: ~${tokens}`);
+          if (episode.rerankScore !== undefined) {
+            sections.push(`**Relevance**: ${episode.rerankScore}`);
+          }
+          sections.push(""); // Empty line before preview
+          sections.push(`> ${preview}...`);
+          sections.push(""); // Empty line after
+        });
+      } else {
+        // Full mode (default) - existing behavior
+        sections.push("## Recalled Relevant Context\n");
+
+        episodes.forEach((episode, index) => {
+          const date = episode.createdAt.toLocaleString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+
+          if (episode.isCompact) {
+            sections.push(`### 📦 Session Compact`);
+            sections.push(`**UUID**: ${episode.uuid}`);
+            sections.push(`**Created**: ${date}`);
+            if (episode.rerankScore !== undefined) {
+              sections.push(`**Relevance**: ${episode.rerankScore}`);
+            }
+            sections.push(""); // Empty line before content
+            sections.push(episode.content);
+            sections.push(""); // Empty line
+          } else {
+            sections.push(`### Episode ${index + 1}`);
+            sections.push(`**UUID**: ${episode.uuid}`);
+            sections.push(`**Created**: ${date}`);
+            if (episode.rerankScore !== undefined) {
+              sections.push(`**Relevance**: ${episode.rerankScore}`);
+            }
+            if (episode.labelIds.length > 0) {
+              sections.push(`**Labels**: ${episode.labelIds.join(", ")}`);
+            }
+            sections.push(""); // Empty line before content
+            sections.push(episode.content);
+            sections.push(""); // Empty line after
+          }
+        });
+      }
+    }
+
+    // Add invalidated facts section (only in full mode or if explicitly requested)
+    if (facts.length > 0 && mode === "full") {
       sections.push("## Invalidated Facts\n");
 
       facts.forEach((fact) => {
@@ -577,14 +732,35 @@ export class SearchService {
         sections.push(`  *Valid: ${validDate} → Invalidated: ${invalidDate}*`);
       });
       sections.push(""); // Empty line after facts
-    }
-
-    // Handle empty results
-    if (episodes.length === 0 && facts.length === 0) {
-      sections.push("*No relevant memories found.*\n");
+    } else if (facts.length > 0 && mode !== "full") {
+      sections.push(
+        `\n*${facts.length} invalidated facts available in full mode.*`,
+      );
     }
 
     return sections.join("\n");
+  }
+
+  /**
+   * Estimate token count for a piece of text (~4 chars per token)
+   */
+  private estimateTokens(text: string): number {
+    return Math.ceil(text.length / 4);
+  }
+
+  /**
+   * Get a preview of content, truncating at word boundary
+   */
+  private getPreview(content: string, maxLength: number): string {
+    if (content.length <= maxLength) {
+      return content;
+    }
+    // Truncate at word boundary
+    const truncated = content.substring(0, maxLength);
+    const lastSpace = truncated.lastIndexOf(" ");
+    return lastSpace > maxLength * 0.7
+      ? truncated.substring(0, lastSpace)
+      : truncated;
   }
 
   /**

@@ -2,11 +2,20 @@ import { type ChildProcess, type IOType } from "node:child_process";
 import process from "node:process";
 import { type Stream } from "node:stream";
 
-import { type Transport } from "@modelcontextprotocol/sdk/shared/transport";
 import {
   type JSONRPCMessage,
   JSONRPCMessageSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+
+// Transport interface for MCP communication
+interface Transport {
+  start(): Promise<void>;
+  close(): Promise<void>;
+  send(message: JSONRPCMessage): Promise<void>;
+  onclose?: () => void;
+  onerror?: (error: Error) => void;
+  onmessage?: (message: JSONRPCMessage) => void;
+}
 import { execa } from "execa";
 
 /**

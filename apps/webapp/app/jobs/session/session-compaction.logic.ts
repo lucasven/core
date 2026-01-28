@@ -1,6 +1,10 @@
 import { logger } from "~/services/logger.service";
 import { z } from "zod";
-import { makeModelCall } from "~/lib/model.server";
+import {
+  makeModelCall,
+  getModelForTaskType,
+  getModel,
+} from "~/lib/model.server";
 import {
   getCompactedSessionBySessionId,
   getSessionEpisodes,
@@ -17,7 +21,7 @@ export interface SessionCompactionPayload {
   sessionId: string;
   source: string;
   workspaceId: string;
-  triggerSource?: "auto" | "manual" | "threshold";
+  triggerSource?: TriggerSource;
 }
 
 export interface SessionCompactionResult {
@@ -43,9 +47,12 @@ export const CompactionResultSchema = z.object({
 
 export const CONFIG = {
   minEpisodesForCompaction: 1, // Minimum episodes to trigger compaction
+  minEpisodesForSessionEnd: 1, // Lower threshold for session end (capture any pending content)
   compactionThreshold: 1, // Trigger after N new episodes
   maxEpisodesPerBatch: 50, // Process in batches if needed
 };
+
+export type TriggerSource = "auto" | "manual" | "threshold" | "session_end";
 
 /**
  * Core business logic for session compaction
@@ -71,6 +78,24 @@ export async function processSessionCompaction(
   });
 
   try {
+    // Fetch workspace to get embedding model and task model configuration
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { Workspace: { select: { metadata: true } } },
+    });
+    const metadata = user?.Workspace?.metadata as
+      | {
+          embeddingModel?: string;
+          model?: string;
+          taskModels?: Record<string, string>;
+        }
+      | undefined;
+
+    const sessionCompactionModel = getModelForTaskType("sessionCompaction", {
+      taskModels: metadata?.taskModels,
+      model: metadata?.model,
+    });
+
     // Check if compaction already exists
     const existingCompact = await prisma.document.findFirst({
       where: { sessionId, workspaceId },
@@ -86,12 +111,19 @@ export async function processSessionCompaction(
       workspaceId,
     );
 
+    // Use lower threshold for session_end to capture any pending content
+    const minEpisodes =
+      triggerSource === "session_end"
+        ? CONFIG.minEpisodesForSessionEnd
+        : CONFIG.minEpisodesForCompaction;
+
     // Check if we have enough episodes
-    if (!existingCompact && episodes.length < CONFIG.minEpisodesForCompaction) {
+    if (!existingCompact && episodes.length < minEpisodes) {
       logger.info(`Not enough episodes for compaction`, {
         sessionId,
         episodeCount: episodes.length,
-        minRequired: CONFIG.minEpisodesForCompaction,
+        minRequired: minEpisodes,
+        triggerSource,
       });
       return {
         success: false,
@@ -122,6 +154,7 @@ export async function processSessionCompaction(
           userId,
           workspaceId,
           source,
+          sessionCompactionModel,
         )
       : await createCompaction(
           sessionId,
@@ -129,6 +162,7 @@ export async function processSessionCompaction(
           userId,
           workspaceId,
           source,
+          sessionCompactionModel,
         );
 
     if (compactionResult) {
@@ -319,6 +353,7 @@ async function createCompaction(
   userId: string,
   workspaceId: string,
   source: string,
+  compactionModel?: string,
 ): Promise<Document | undefined> {
   logger.info(`Creating new compaction`, {
     sessionId,
@@ -326,7 +361,11 @@ async function createCompaction(
   });
 
   // Generate compaction using LLM
-  const compactionData = await generateCompaction(episodes, null);
+  const compactionData = await generateCompaction(
+    episodes,
+    null,
+    compactionModel,
+  );
 
   // Save to graph, vector DB, and Document table in parallel
   const document = await upsertDocumentFromCompaction(
@@ -354,6 +393,7 @@ async function updateCompaction(
   userId: string,
   workspaceId: string,
   source: string,
+  compactionModel?: string,
 ): Promise<Document | undefined> {
   logger.info(`Updating existing compaction`, {
     compactUuid: existingCompact.id,
@@ -364,6 +404,7 @@ async function updateCompaction(
   const compactionData = await generateCompaction(
     newEpisodes,
     existingCompact.content,
+    compactionModel,
   );
 
   // Update graph, vector DB, and Document table in parallel
@@ -389,6 +430,7 @@ async function updateCompaction(
 async function generateCompaction(
   episodes: EpisodicNode[],
   existingSummary: string | null,
+  compactionModel?: string,
 ): Promise<z.infer<typeof CompactionResultSchema>> {
   const systemPrompt = createCompactionSystemPrompt();
   const userPrompt = createCompactionUserPrompt(episodes, existingSummary);
@@ -401,17 +443,22 @@ async function generateCompaction(
   logger.info(`Generating compaction with LLM`, {
     episodeCount: episodes.length,
     hasExistingSummary: !!existingSummary,
+    model: compactionModel,
   });
 
   try {
     let responseText = "";
+    const modelInstance = compactionModel
+      ? getModel(compactionModel)
+      : undefined;
+
     await makeModelCall(
       false,
       messages,
       (text: string) => {
         responseText = text;
       },
-      undefined,
+      modelInstance ? { model: modelInstance } : undefined,
       "high",
       "session-compaction",
     );
@@ -595,4 +642,29 @@ export async function shouldTriggerCompaction(
     workspaceId,
   );
   return newEpisodes.length >= CONFIG.compactionThreshold;
+}
+
+/**
+ * Trigger session compaction from external callers (e.g., lifecycle hooks)
+ * This function directly calls processSessionCompaction without going through a job queue
+ */
+export async function triggerSessionCompaction(
+  sessionId: string,
+  userId: string,
+  workspaceId: string,
+  triggerSource: TriggerSource = "auto",
+): Promise<SessionCompactionResult> {
+  logger.info(`Triggering session compaction`, {
+    sessionId,
+    userId,
+    workspaceId,
+    triggerSource,
+  });
+
+  return processSessionCompaction({
+    userId,
+    sessionId,
+    source: "lifecycle_hook",
+    triggerSource,
+  });
 }

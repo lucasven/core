@@ -2,7 +2,11 @@ import { Provider, type ProviderConfig } from "./types";
 import { Button } from "../ui";
 import { StepCodeBlock, StepInfoBox } from "./installation-steps";
 
-export const PROVIDER_CONFIGS: Record<Provider, ProviderConfig> = {
+const DEFAULT_APP_ORIGIN = "https://app.getcore.me";
+
+export const getProviderConfigs = (
+  appOrigin: string = DEFAULT_APP_ORIGIN,
+): Record<Provider, ProviderConfig> => ({
   [Provider.CHATGPT]: {
     id: Provider.CHATGPT,
     name: "ChatGPT",
@@ -61,7 +65,7 @@ export const PROVIDER_CONFIGS: Record<Provider, ProviderConfig> = {
               <div>Run in terminal:</div>
               <code className="text-sm">
                 claude mcp add --transport http --scope user core-memory
-                https://app.getcore.me/api/v1/mcp?source=Claude-Code
+                {` ${appOrigin}/api/v1/mcp?source=Claude-Code`}
               </code>
             </div>
           </StepCodeBlock>
@@ -116,7 +120,7 @@ export const PROVIDER_CONFIGS: Record<Provider, ProviderConfig> = {
           <StepCodeBlock>
             <div className="space-y-2">
               <code className="text-sm">
-                https://app.getcore.me/api/v1/mcp?source=Claude
+                {`${appOrigin}/api/v1/mcp?source=Claude`}
               </code>
             </div>
           </StepCodeBlock>
@@ -178,7 +182,7 @@ trust_level = "trusted"
 rmcp_client = true
 
 [mcp_servers.memory]
-url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
+url = "${appOrigin}/api/v1/mcp?source=codex"`}
               </pre>
             </div>
           </StepCodeBlock>
@@ -215,7 +219,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
         title: "Click on Add to Cursor",
         component: (
           <a
-            href="cursor://mcp/install?name=core-memory&type=streamableHttp&url=https://app.getcore.me/api/v1/mcp?source=cursor"
+            href={`cursor://mcp/install?name=core-memory&type=streamableHttp&url=${appOrigin}/api/v1/mcp?source=cursor`}
             target="_blank"
             rel="noopener noreferrer"
           >
@@ -243,7 +247,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-gray-400">URL:</span>
                   <span className="text-sm">
-                    https://app.getcore.me/api/v1/mcp?source=cursor
+                    {`${appOrigin}/api/v1/mcp?source=cursor`}
                   </span>
                 </div>
               </div>
@@ -314,7 +318,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
         title: "Generate and Add API Key from CORE Dashboard",
         component: (
           <p className="text-muted-foreground text-sm">
-            Go to Settings → API Key → Generate new key → Name it “extension”
+            Go to Settings → API Key → Generate new key → Name it "extension"
           </p>
         ),
       },
@@ -322,7 +326,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
         title: "Add API Key in Core Extension",
         component: (
           <p className="text-muted-foreground text-sm">
-            Paste your API key and click Save. Once connected, you’ll see API
+            Paste your API key and click Save. Once connected, you'll see API
             key configured account.
           </p>
         ),
@@ -355,7 +359,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
                 {`{
   "core-memory": {
     "type": "streamable-http",
-    "url": "https://app.getcore.me/api/v1/mcp?source=Kilo-Code",
+    "url": "${appOrigin}/api/v1/mcp?source=Kilo-Code",
     "headers": {
       "Authorization": "Bearer your-token"
     },
@@ -385,7 +389,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
                 {`{
   "servers": {
     "core-memory": {
-      "url": "https://app.getcore.me/api/v1/mcp?source=Vscode",
+      "url": "${appOrigin}/api/v1/mcp?source=Vscode",
       "type": "http"
       "headers": {
         "Authorization": "Bearer YOUR_API_KEY"
@@ -417,7 +421,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
                 {`{
   "mcpServers": {
     "core-memory": {
-      "serverUrl": "https://app.getcore.me/api/v1/mcp/source=windsurf",
+      "serverUrl": "${appOrigin}/api/v1/mcp/source=windsurf",
       "headers": {
         "Authorization": "Bearer <YOUR_API_KEY>"
       }
@@ -484,7 +488,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
                 {`{
   "core-memory": {
     "command": "npx",
-    "args": ["-y", "mcp-remote", "https://app.getcore.me/api/v1/mcp?source=Zed"]
+    "args": ["-y", "mcp-remote", "${appOrigin}/api/v1/mcp?source=Zed"]
   }
 }`}
               </pre>
@@ -512,7 +516,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
   "servers": {
     "core-memory": {
       "type": "http",
-      "url": "https://app.getcore.me/api/v1/mcp?source=VSCode-Insiders",
+      "url": "${appOrigin}/api/v1/mcp?source=VSCode-Insiders",
       "headers": {
         "Authorization": "Bearer YOUR_API_KEY"
       }
@@ -549,8 +553,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
             <div className="space-y-2">
               <div>Run in terminal:</div>
               <code className="text-sm">
-                amp mcp add core-memory
-                https://app.getcore.me/api/v1/mcp?source=amp
+                {`amp mcp add core-memory ${appOrigin}/api/v1/mcp?source=amp`}
               </code>
             </div>
           </StepCodeBlock>
@@ -576,7 +579,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
   "mcpServers": {
     "core-memory": {
       "type": "http",
-      "url": "https://app.getcore.me/api/v1/mcp?source=augment-code",
+      "url": "${appOrigin}/api/v1/mcp?source=augment-code",
       "headers": {
         "Authorization": "Bearer YOUR_API_KEY"
       }
@@ -616,7 +619,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
   "mcpServers": {
     "core-memory": {
       "type": "streamable-http",
-      "url": "https://app.getcore.me/api/v1/mcp?source=Roo-Code",
+      "url": "${appOrigin}/api/v1/mcp?source=Roo-Code",
       "headers": {
         "Authorization": "Bearer YOUR_API_KEY"
       }
@@ -647,7 +650,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
                 {`"mcp": {
   "core-memory": {
     "type": "remote",
-    "url": "https://app.getcore.me/api/v1/mcp?source=Opencode",
+    "url": "${appOrigin}/api/v1/mcp?source=Opencode",
     "headers": {
       "Authorization": "Bearer YOUR_API_KEY"
     },
@@ -678,7 +681,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
                 {`{
   "mcpServers": {
     "core-memory": {
-      "httpUrl": "https://app.getcore.me/api/v1/mcp?source=Qwen",
+      "httpUrl": "${appOrigin}/api/v1/mcp?source=Qwen",
       "headers": {
         "Authorization": "Bearer YOUR_API_KEY",
         "Accept": "application/json, text/event-stream"
@@ -711,7 +714,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
   "mcpServers": {
     "core": {
       "type": "http",
-      "url": "https://app.getcore.me/api/v1/mcp?source=Copilot-CLI",
+      "url": "${appOrigin}/api/v1/mcp?source=Copilot-CLI",
       "headers": {
         "Authorization": "Bearer YOUR_API_KEY"
       }
@@ -746,7 +749,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
   "mcpServers": {
     "core": {
       "type": "http",
-      "url": "https://app.getcore.me/api/v1/mcp?source=Copilot-Agent",
+      "url": "${appOrigin}/api/v1/mcp?source=Copilot-Agent",
       "headers": {
         "Authorization": "Bearer YOUR_API_KEY"
       }
@@ -776,7 +779,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
               <pre className="text-sm">
                 {`{
   "core": {
-    "url": "https://app.getcore.me/api/v1/mcp?source=Warp",
+    "url": "${appOrigin}/api/v1/mcp?source=Warp",
     "headers": {
       "Authorization": "Bearer YOUR_API_KEY"
     }
@@ -814,7 +817,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
                 {`{
   "mcpServers": {
     "core-memory": {
-      "url": "https://app.getcore.me/api/v1/mcp?source=Rovo-Dev",
+      "url": "${appOrigin}/api/v1/mcp?source=Rovo-Dev",
     }
   }
 }`}
@@ -859,7 +862,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
                 {`{
   "mcpServers": {
     "core-memory": {
-      "url": "https://app.getcore.me/api/v1/mcp?source=Cline",
+      "url": "${appOrigin}/api/v1/mcp?source=Cline",
       "type": "streamableHttp",
       "headers": {
         "Authorization": "Bearer YOUR_API_KEY"
@@ -899,7 +902,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
                 {`{
   "mcpServers": {
     "core-memory": {
-      "url": "https://app.getcore.me/api/v1/mcp?source=Kiro",
+      "url": "${appOrigin}/api/v1/mcp?source=Kiro",
       "headers": {
         "Authorization": "Bearer YOUR_API_KEY"
       }
@@ -930,7 +933,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
                 {`{
   "mcpServers": {
     "core": {
-      "url": "https://app.getcore.me/api/v1/mcp?source=Trae"
+      "url": "${appOrigin}/api/v1/mcp?source=Trae"
     }
   }
 }`}
@@ -962,7 +965,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
                 {`{
   "core-memory": {
     "command": "npx",
-    "args": ["-y", "mcp-remote", "https://app.getcore.me/api/v1/mcp?source=perplexity"]
+    "args": ["-y", "mcp-remote", "${appOrigin}/api/v1/mcp?source=perplexity"]
   }
 }`}
               </pre>
@@ -1021,7 +1024,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
                 {`{
   "mcpServers": {
     "core-memory": {
-      "url": "https://app.getcore.me/api/v1/mcp?source=Qodo-Gen"
+      "url": "${appOrigin}/api/v1/mcp?source=Qodo-Gen"
     }
   }
 }`}
@@ -1052,7 +1055,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
     "core": {
       "type": "http",
       "timeout": 120,
-      "url": "https://app.getcore.me/api/v1/mcp?source=crush",
+      "url": "${appOrigin}/api/v1/mcp?source=Crush",
       "headers": {
         "Authorization": "Bearer YOUR_API_KEY"
       }
@@ -1080,9 +1083,7 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
             <div className="space-y-2">
               <div>Run in terminal:</div>
               <code className="text-sm">
-                droid mcp add core
-                https://app.getcore.me/api/v1/mcp?source=Factory --type http
-                --header "Authorization: Bearer YOUR_API_KEY"
+                {`droid mcp add core ${appOrigin}/api/v1/mcp?source=Factory --type http --header "Authorization: Bearer YOUR_API_KEY"`}
               </code>
             </div>
           </StepCodeBlock>
@@ -1098,5 +1099,8 @@ url = "https://app.getcore.me/api/v1/mcp?source=codex"`}
       },
     ],
   },
-};
+});
+
+// Backward compatibility: export a default config using the default origin
+export const PROVIDER_CONFIGS = getProviderConfigs();
 

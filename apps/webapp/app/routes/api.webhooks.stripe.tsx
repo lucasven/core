@@ -13,7 +13,7 @@ import Stripe from "stripe";
 import { prisma } from "~/db.server";
 import { BILLING_CONFIG, getPlanConfig } from "~/config/billing.server";
 import { logger } from "~/services/logger.service";
-import type { PlanType } from "@prisma/client";
+import type { PlanType, SubscriptionStatus } from "@prisma/client";
 
 // Initialize Stripe
 const stripe = BILLING_CONFIG.stripe.secretKey
@@ -157,7 +157,7 @@ async function handleSubscriptionUpdated(subscription: any) {
 
   if (existingSubscription) {
     // Determine status - if cancel_at_period_end is true, keep as CANCELED
-    let subscriptionStatus;
+    let subscriptionStatus: SubscriptionStatus;
     if (subscription.cancel_at_period_end) {
       subscriptionStatus = "CANCELED";
     } else if (subscription.status === "active") {

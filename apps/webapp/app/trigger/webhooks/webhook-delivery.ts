@@ -1,5 +1,6 @@
 import { queue, task } from "@trigger.dev/sdk";
 import { logger } from "~/services/logger.service";
+import { getErrorMessage } from "~/utils/errors";
 import { WebhookDeliveryStatus } from "@core/database";
 import {
   deliverWebhook,
@@ -187,12 +188,12 @@ export const webhookDeliveryTask = task({
         total: totalCount,
         results: result.deliveryResults,
       };
-    } catch (error: any) {
+    } catch (error) {
       logger.error(
         `Error in webhook delivery task for activity ${payload.activityId}:`,
-        error,
+        { error },
       );
-      return { success: false, error: error.message };
+      return { success: false, error: getErrorMessage(error) };
     }
   },
 });
@@ -208,10 +209,10 @@ export async function triggerWebhookDelivery(
       workspaceId,
     });
     logger.log(`Triggered webhook delivery for activity ${activityId}`);
-  } catch (error: any) {
+  } catch (error) {
     logger.error(
       `Failed to trigger webhook delivery for activity ${activityId}:`,
-      error,
+      { error },
     );
   }
 }

@@ -7,8 +7,9 @@ import { hasCredits } from "~/services/billing.server";
 import { LabelService } from "~/services/label.server";
 import { getUserDocuments } from "~/services/ingestionLogs.server";
 import { getDocument, getPersonaForUser } from "~/services/document.server";
+import { getWorkspaceEmbeddingModel } from "~/lib/model.server";
+import { prisma } from "~/db.server";
 
-const searchService = new SearchService();
 const labelService = new LabelService();
 
 /**
@@ -123,12 +124,50 @@ export async function handleMemoryIngest(args: any) {
 }
 
 /**
+ * Estimate token count for a string (rough approximation: ~4 chars per token)
+ */
+function estimateTokenCount(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+/**
  * Handler for memory_search
  */
 export async function handleMemorySearch(args: any) {
+  const startTime = Date.now();
+
   try {
     const labelIds =
       args.labelIds || (args.labelId ? [args.labelId] : undefined);
+
+    // Fetch workspace to get embedding model configuration and search settings
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: args.workspaceId },
+      select: { metadata: true },
+    });
+    const metadata = workspace?.metadata as Record<string, any> | undefined;
+    const embeddingModel = getWorkspaceEmbeddingModel(metadata);
+
+    // Get progressive retrieval settings
+    const progressiveSettings = metadata?.progressiveRetrieval || {};
+    const retrievalMode =
+      args.mode || progressiveSettings.defaultMode || "full";
+    const showTokenCosts = progressiveSettings.showTokenCosts ?? true;
+
+    // Extract workspace search settings
+    const workspaceSettings = {
+      searchLimit: metadata?.searchLimit,
+      scoreThreshold: metadata?.scoreThreshold,
+      broadSearch: metadata?.broadSearch,
+      maxBfsDepth: metadata?.maxBfsDepth,
+      includeInvalidated: metadata?.includeInvalidated,
+      useLLMValidation: metadata?.useLLMValidation,
+    };
+
+    const searchService = new SearchService({
+      embeddingModel,
+      workspaceSettings,
+    });
 
     const results = await searchService.search(
       args.query,
@@ -139,15 +178,36 @@ export async function handleMemorySearch(args: any) {
         endTime: args.endTime ? new Date(args.endTime) : undefined,
         labelIds,
         sortBy: args.sortBy as "relevance" | "recency" | undefined,
+        limit: args.limit,
+        broadSearch: args.broadSearch,
+        mode: retrievalMode as "index" | "details" | "full",
       },
       args.source,
     );
+
+    const responseTimeMs = Date.now() - startTime;
+    const responseText = JSON.stringify(results);
+    const tokenCount = estimateTokenCount(responseText);
+
+    // Add metadata if token costs are enabled
+    const response =
+      showTokenCosts && typeof results !== "string"
+        ? {
+            ...results,
+            _meta: {
+              tokenCount,
+              responseTimeMs,
+              episodeCount: results.episodes?.length || 0,
+              mode: retrievalMode,
+            },
+          }
+        : results;
 
     return {
       content: [
         {
           type: "text",
-          text: JSON.stringify(results),
+          text: JSON.stringify(response),
         },
       ],
     };
@@ -298,10 +358,13 @@ export async function handleGetLabels(args: any) {
 
 /**
  * Handler for get_session_id
+ * Uses the MCP transport sessionId if provided, otherwise generates a new one.
+ * This links MCP sessions to ingestion sessions for better traceability.
  */
-export async function handleGetSessionId() {
+export async function handleGetSessionId(mcpSessionId?: string) {
   try {
-    const sessionId = randomUUID();
+    // Use MCP transport sessionId if available, otherwise generate new one
+    const sessionId = mcpSessionId || randomUUID();
 
     return {
       content: [

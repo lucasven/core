@@ -3,6 +3,8 @@ import { createHybridActionApiRoute } from "~/services/routeBuilders/apiBuilder.
 import { SearchService } from "~/services/search.server";
 import { json } from "@remix-run/node";
 import { trackFeatureUsage } from "~/services/telemetry.server";
+import { prisma } from "~/db.server";
+import { getWorkspaceEmbeddingModel } from "~/lib/model.server";
 
 export const SearchBodyRequest = z.object({
   query: z.string(),
@@ -20,9 +22,9 @@ export const SearchBodyRequest = z.object({
   adaptiveFiltering: z.boolean().default(true),
   structured: z.boolean().default(true),
   sortBy: z.enum(["relevance", "recency"]).optional(),
+  broadSearch: z.boolean().default(false), // Enable broad search mode for more comprehensive results
 });
 
-const searchService = new SearchService();
 const { action, loader } = createHybridActionApiRoute(
   {
     body: SearchBodyRequest,
@@ -33,6 +35,31 @@ const { action, loader } = createHybridActionApiRoute(
     corsStrategy: "all",
   },
   async ({ body, authentication }) => {
+    // Fetch workspace to get embedding model configuration and search settings
+    const user = await prisma.user.findUnique({
+      where: { id: authentication.userId },
+      include: { Workspace: { select: { metadata: true } } },
+    });
+    const metadata = user?.Workspace?.metadata as
+      | Record<string, any>
+      | undefined;
+    const embeddingModel = getWorkspaceEmbeddingModel(metadata);
+
+    // Extract workspace search settings
+    const workspaceSettings = {
+      searchLimit: metadata?.searchLimit,
+      scoreThreshold: metadata?.scoreThreshold,
+      broadSearch: metadata?.broadSearch,
+      maxBfsDepth: metadata?.maxBfsDepth,
+      includeInvalidated: metadata?.includeInvalidated,
+      useLLMValidation: metadata?.useLLMValidation,
+    };
+
+    const searchService = new SearchService({
+      embeddingModel,
+      workspaceSettings,
+    });
+
     const results = await searchService.search(
       body.query,
       authentication.userId,
@@ -50,6 +77,7 @@ const { action, loader } = createHybridActionApiRoute(
         adaptiveFiltering: body.adaptiveFiltering,
         structured: body.structured,
         sortBy: body.sortBy,
+        broadSearch: body.broadSearch,
       },
     );
 

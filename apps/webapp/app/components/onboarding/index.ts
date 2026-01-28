@@ -1,7 +1,7 @@
 export { OnboardingModal } from "./onboarding-modal";
 export { Provider, OnboardingStep } from "./types";
 export type { ProviderConfig, OnboardingState } from "./types";
-export { PROVIDER_CONFIGS } from "./provider-config";
+export { PROVIDER_CONFIGS, getProviderConfigs } from "./provider-config";
 export {
   InstallationSteps,
   StepCodeBlock,

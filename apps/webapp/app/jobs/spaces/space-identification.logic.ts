@@ -37,7 +37,7 @@ export async function identifySpacesForTopics(
   const { userId, topics } = params;
 
   // Get existing spaces for the user
-  const existingSpaces = [];
+  const existingSpaces: SpaceNode[] = [];
 
   // Prepare topic data with top 10 keywords and top 5 episodes
   const topicsForAnalysis = await Promise.all(

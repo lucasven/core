@@ -2,7 +2,7 @@ import { task } from "@trigger.dev/sdk";
 import { z } from "zod";
 import { IngestionStatus } from "@core/database";
 import { logger } from "~/services/logger.service";
-
+import { getErrorMessage } from "~/utils/errors";
 import { type IngestBodyRequest, ingestTask } from "./ingest";
 
 import { countTokens } from "~/services/search/tokenBudget";
@@ -106,20 +106,20 @@ export const retryNoCreditsTask = task({
           logger.log(
             `Successfully retriggered episode ${item.id} (retry #${item.retryCount + 1})`,
           );
-        } catch (error: any) {
+        } catch (error) {
           results.failed++;
           results.errors.push({
             queueId: item.id,
-            error: error.message,
+            error: getErrorMessage(error),
           });
-          logger.error(`Failed to retrigger episode ${item.id}:`, error);
+          logger.error(`Failed to retrigger episode ${item.id}:`, { error });
 
           // Update the item to mark it as failed
           await prisma.ingestionQueue.update({
             where: { id: item.id },
             data: {
               status: IngestionStatus.FAILED,
-              error: `Retry failed: ${error.message}`,
+              error: `Retry failed: ${getErrorMessage(error)}`,
             },
           });
         }
@@ -133,14 +133,14 @@ export const retryNoCreditsTask = task({
         success: true,
         ...results,
       };
-    } catch (err: any) {
+    } catch (err) {
       logger.error(
         `Error retrying NO_CREDITS episodes for workspace ${payload.workspaceId}:`,
-        err,
+        { error: err },
       );
       return {
         success: false,
-        error: err.message,
+        error: getErrorMessage(err),
       };
     }
   },

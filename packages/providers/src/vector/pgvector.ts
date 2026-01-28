@@ -344,6 +344,12 @@ export class PgVectorProvider implements IVectorProvider {
     const threshold = params.threshold || 0;
     const { userId, labelIds, excludeIds, sessionId, version, workspaceId } = params.filter;
 
+    // Validate vector is not empty - empty vectors cause PostgreSQL errors
+    if (!params.vector || params.vector.length === 0) {
+      console.warn("[PgVector] Empty vector provided to search, returning empty results");
+      return [];
+    }
+
     // Use $queryRaw for vector similarity search
     // pgvector uses <=> for cosine distance
     // Convert distance to similarity: similarity = 1 - distance
@@ -357,9 +363,13 @@ export class PgVectorProvider implements IVectorProvider {
     // IMPORTANT: Cast to exact dimension to match HNSW index: vector::vector(N)
     const expandedLimit = threshold > 0 ? Math.max(limit * 2, 100) : limit;
 
+    // Infer dimensions from the input vector - this allows dynamic dimension support
+    // based on workspace embedding model settings
+    const vectorDimensions = params.vector.length;
+
     // Build vector literal with explicit dimension using Prisma.raw for type modifier
-    const vectorLiteral = Prisma.raw(`'[${params.vector.join(",")}]'::vector(${this.dimensions})`);
-    const vectorCast = Prisma.raw(`vector::vector(${this.dimensions})`);
+    const vectorLiteral = Prisma.raw(`'[${params.vector.join(",")}]'::vector(${vectorDimensions})`);
+    const vectorCast = Prisma.raw(`vector::vector(${vectorDimensions})`);
 
     // For label namespace, filter by workspaceId instead of userId
     if (params.namespace === "label") {
@@ -480,12 +490,21 @@ export class PgVectorProvider implements IVectorProvider {
       return new Map();
     }
 
+    // Validate vector is not empty - empty vectors cause PostgreSQL errors
+    if (!params.vector || params.vector.length === 0) {
+      console.warn("[PgVector] Empty vector provided to batchScore, returning empty scores");
+      return new Map();
+    }
+
     const tableName = this.getTableName(params.namespace);
+
+    // Infer dimensions from the input vector
+    const vectorDimensions = params.vector.length;
 
     // Use $queryRaw for batch scoring
     // Cast to explicit dimension for consistency with HNSW index
-    const vectorLiteral = Prisma.raw(`'[${params.vector.join(",")}]'::vector(${this.dimensions})`);
-    const vectorCast = Prisma.raw(`vector::vector(${this.dimensions})`);
+    const vectorLiteral = Prisma.raw(`'[${params.vector.join(",")}]'::vector(${vectorDimensions})`);
+    const vectorCast = Prisma.raw(`vector::vector(${vectorDimensions})`);
 
     const results = await this.prisma.$queryRaw<
       Array<{

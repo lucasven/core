@@ -12,6 +12,13 @@ let openaiProvider: OpenAIBatchProvider | null = null;
 let anthropicProvider: AnthropicBatchProvider | null = null;
 
 function getProvider(modelId: string) {
+  // OpenRouter models don't support batch API - must use sequential processing
+  if (modelId.includes("/")) {
+    throw new Error(
+      `Batch processing not supported for OpenRouter model: ${modelId}. Use sequential processing instead.`,
+    );
+  }
+
   // OpenAI models
   if (modelId.includes("gpt") || modelId.includes("o1")) {
     if (!openaiProvider) {

@@ -6,6 +6,7 @@ import {
   useFetcher,
   useSearchParams,
 } from "@remix-run/react";
+import { useTypedRouteLoaderData } from "remix-typedjson";
 import {
   type LoaderFunctionArgs,
   type ActionFunctionArgs,
@@ -30,6 +31,11 @@ import {
   CardTitle,
 } from "~/components/ui/card";
 import { useToast } from "~/hooks/use-toast";
+import { getProviderConfigs } from "~/components/onboarding/provider-config";
+import { type Provider } from "~/components/onboarding/types";
+import { useMcpSessions } from "~/hooks/use-mcp-sessions";
+import { ProviderCard } from "~/components/integrations/provider-card";
+import type { loader as rootLoader } from "~/root";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const userId = await requireUserId(request);

@@ -313,18 +313,28 @@ export async function applyMultiFactorReranking(
   options?: SearchOptions,
 ): Promise<(EpisodeWithProvenance & { rerankScore: number })[]> {
   // Stage 1: Optional LLM validation for borderline confidence
+  // Skip LLM validation in broad search mode for faster, more inclusive results
   let finalEpisodes = episodes;
 
-  const maxEpisodesForLLM = options?.maxEpisodesForLLM || 20;
-  finalEpisodes = await validateEpisodesWithLLMInBatches(
-    query,
-    episodes,
-    maxEpisodesForLLM,
-  );
+  const shouldUseLLMValidation =
+    options?.useLLMValidation !== false && !options?.broadSearch;
 
-  if (finalEpisodes.length === 0) {
-    logger.info("LLM validation rejected all episodes, returning empty");
-    return [];
+  if (shouldUseLLMValidation) {
+    const maxEpisodesForLLM = options?.maxEpisodesForLLM || 20;
+    finalEpisodes = await validateEpisodesWithLLMInBatches(
+      query,
+      episodes,
+      maxEpisodesForLLM,
+    );
+
+    if (finalEpisodes.length === 0) {
+      logger.info("LLM validation rejected all episodes, returning empty");
+      return [];
+    }
+  } else {
+    logger.info(
+      `Skipping LLM validation: ${options?.broadSearch ? "broad search mode" : "disabled by options"}`,
+    );
   }
 
   // Normalize firstLevelScore to 0-1 range for consistency with Cohere/Ollama providers

@@ -143,6 +143,26 @@ export function getApiKeyResult(apiKey: string): {
  * Authenticate OAuth2 requests specifically
  * Returns structured result for OAuth endpoints
  */
+/**
+ * Require API authentication, throwing a Response if auth fails.
+ * Use this for simple API routes that don't need the full route builder pattern.
+ */
+export async function requireApiAuth(
+  request: Request,
+  options: { allowPublicKey?: boolean; allowJWT?: boolean } = {},
+): Promise<ApiAuthenticationResultSuccess> {
+  const result = await authenticateApiRequestWithFailure(request, options);
+
+  if (!result.ok) {
+    throw new Response(JSON.stringify({ error: result.error }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  return result;
+}
+
 export async function authenticateOAuthRequest(
   request: Request,
   scopes?: string[],
