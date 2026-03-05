@@ -73,6 +73,9 @@ export function getModelForTask(complexity: ModelComplexity = "high"): string {
     "google/gemini-2.0-flash-001": "google/gemini-2.0-flash-lite-001",
     "anthropic/claude-sonnet-4": "anthropic/claude-3-5-haiku",
     "openai/gpt-4.1": "openai/gpt-4.1-mini",
+    "openai/gpt-4.1-mini": "openai/gpt-5-nano",
+    "openai/gpt-5-nano": "openai/gpt-5-nano", // already cheap
+    "google/gemini-3-flash-preview": "google/gemini-2.0-flash-lite-001",
   };
 
   return downgrades[baseModel] || baseModel;
@@ -171,7 +174,8 @@ export async function makeModelCall(
   const generateTextOptions: any = {};
 
   // Add OpenAI provider options for prompt caching and disable web search
-  if (model.includes("gpt")) {
+  // Only for direct OpenAI models, NOT OpenRouter (which doesn't support these options)
+  if (model.includes("gpt") && !model.includes("/")) {
     const openaiOptions: OpenAIResponsesProviderOptions = {
       promptCacheKey: cacheKey || `ingestion-${complexity}`,
     };
@@ -272,7 +276,8 @@ export async function makeStructuredModelCall<T extends z.ZodType>(
   }
 
   // Add OpenAI provider options for prompt caching
-  if (model.includes("gpt")) {
+  // Only for direct OpenAI models, NOT OpenRouter (which doesn't support these options)
+  if (model.includes("gpt") && !model.includes("/")) {
     const openaiOptions: OpenAIResponsesProviderOptions = {
       promptCacheKey: cacheKey || `structured-${complexity}`,
       strictJsonSchema: false,
@@ -452,6 +457,7 @@ export async function getEmbedding(text: string, embeddingModel?: string) {
   const ollamaUrl = process.env.OLLAMA_URL;
   const model = embeddingModel || process.env.EMBEDDING_MODEL;
   const maxRetries = 3;
+  const maxDimensions = parseInt(process.env.EMBEDDING_MODEL_SIZE || "2000", 10);
   let lastEmbedding: number[] = [];
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -479,9 +485,15 @@ export async function getEmbedding(text: string, embeddingModel?: string) {
             "No OpenRouter API key found for embeddings. Set OPENROUTER_API_KEY",
           );
         }
-        const openrouter = createOpenRouter({ apiKey: openrouterKey });
+        // Use OpenAI-compatible client pointed at OpenRouter's API
+        // This avoids @openrouter/ai-sdk-provider's v2 spec compatibility issues
+        // that cause empty embeddings with some models (e.g., Qwen3)
+        const openrouterClient = createOpenAI({
+          apiKey: openrouterKey,
+          baseURL: "https://openrouter.ai/api/v1",
+        });
         const { embedding } = await embed({
-          model: openrouter.embedding(model),
+          model: openrouterClient.embedding(model),
           value: text,
         });
         lastEmbedding = embedding;
@@ -519,9 +531,9 @@ export async function getEmbedding(text: string, embeddingModel?: string) {
         lastEmbedding = embedding;
       }
 
-      // If embedding is not empty, return it immediately
+      // If embedding is not empty, truncate (MRL) and return
       if (lastEmbedding.length > 0) {
-        return lastEmbedding;
+        return truncateEmbedding(lastEmbedding, maxDimensions);
       }
 
       // If empty, log and retry (unless it's the last attempt)
@@ -541,5 +553,23 @@ export async function getEmbedding(text: string, embeddingModel?: string) {
   logger.warn(
     `All ${maxRetries} attempts returned empty embedding, returning last response`,
   );
-  return lastEmbedding;
+  return truncateEmbedding(lastEmbedding, maxDimensions);
+}
+
+/**
+ * Truncate embedding to target dimensions using Matryoshka Representation Learning (MRL).
+ * Slices to the first N dimensions and re-normalizes to unit length.
+ */
+function truncateEmbedding(
+  embedding: number[],
+  maxDimensions: number,
+): number[] {
+  if (embedding.length <= maxDimensions) {
+    return embedding;
+  }
+  const truncated = embedding.slice(0, maxDimensions);
+  // L2 normalize after truncation
+  const norm = Math.sqrt(truncated.reduce((sum, v) => sum + v * v, 0));
+  if (norm === 0) return truncated;
+  return truncated.map((v) => v / norm);
 }

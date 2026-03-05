@@ -45,12 +45,14 @@ const { action, loader } = createActionApiRoute(
 
     try {
       // Fetch workspace to get model configuration
-      const user = await prisma.user.findUnique({
-        where: { id: authentication.userId },
-        include: { Workspace: { select: { metadata: true } } },
-      });
+      const workspace = authentication.workspaceId
+        ? await prisma.workspace.findUnique({
+            where: { id: authentication.workspaceId },
+            select: { metadata: true },
+          })
+        : null;
       const chatModel = getWorkspaceChatModel(
-        user?.Workspace?.metadata as { model?: string } | undefined,
+        workspace?.metadata as { model?: string } | undefined,
       );
 
       // First, search for relevant information

@@ -148,11 +148,15 @@ Generate 1-5 optimized search queries to retrieve relevant context from memory.`
           .max(5)
           .describe("Array of search queries to execute"),
       }),
-      providerOptions: {
-        openai: {
-          strictJsonSchema: false,
-        },
-      },
+      ...(modelName.includes("/")
+        ? {}
+        : {
+            providerOptions: {
+              openai: {
+                strictJsonSchema: false,
+              },
+            },
+          }),
     });
 
     const queries = queryObject.queries;

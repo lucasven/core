@@ -20,7 +20,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const staleThreshold = new Date(Date.now() - STALE_JOB_TIMEOUT_MS);
   await prisma.ingestionQueue.updateMany({
     where: {
-      workspaceId: user.Workspace.id,
+      workspaceId,
       status: "PROCESSING",
       updatedAt: {
         lt: staleThreshold,

@@ -28,13 +28,11 @@ export async function processConversationTitleCreation(
     const conversation = await prisma.conversation.findUnique({
       where: { id: payload.conversationId },
       include: {
-        user: {
-          include: { Workspace: { select: { metadata: true } } },
-        },
+        workspace: { select: { metadata: true } },
       },
     });
     const chatModel = getWorkspaceChatModel(
-      conversation?.user?.Workspace?.metadata as { model?: string } | undefined,
+      conversation?.workspace?.metadata as { model?: string } | undefined,
     );
 
     let conversationTitleResponse = "";

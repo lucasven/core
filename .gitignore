@@ -69,3 +69,7 @@ AGENTS.md
 .conductor/
 
 maintenance/
+# Local files
+.env.backup
+settings.local.json
+hosting/docker/.env

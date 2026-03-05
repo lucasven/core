@@ -2,10 +2,19 @@ import { createRequestHandler } from "@remix-run/express";
 import compression from "compression";
 import express from "express";
 import morgan from "morgan";
+import { createServer } from "http";
 // import { handleMCPRequest, handleSessionRequest } from "~/services/mcp.server";
 // import { authenticateHybridRequest } from "~/services/routeBuilders/apiBuilder.server";
 let viteDevServer;
 let remixHandler;
+// Helper to get origin from request host or fallback to APP_ORIGIN
+function getOrigin(req) {
+    const host = req.hostname;
+    if (host?.includes("getcore.me")) {
+        return `https://${host}`;
+    }
+    return process.env.APP_ORIGIN;
+}
 async function init() {
     if (process.env.NODE_ENV !== "production") {
         const vite = await import("vite");
@@ -21,6 +30,8 @@ async function init() {
         : build.entry?.module;
     remixHandler = createRequestHandler({ build });
     const app = express();
+    // Trust proxy headers (for AWS ALB/CloudFront)
+    app.set("trust proxy", true);
     app.use(compression());
     // http://expressjs.com/en/advanced/best-practice-security.html#at-a-minimum-disable-x-powered-by-header
     app.disable("x-powered-by");
@@ -37,6 +48,7 @@ async function init() {
     app.use(express.static("build/client", { maxAge: "1h" }));
     app.use(morgan("tiny"));
     app.get("/api/v1/mcp", async (req, res) => {
+        const origin = getOrigin(req);
         // Enable CORS for all domains
         res.setHeader("Access-Control-Allow-Origin", "*");
         res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
@@ -46,16 +58,17 @@ async function init() {
         });
         if (!authenticationResult) {
             // Step 1: Initial 401 handshake with WWW-Authenticate header
-            res.setHeader("WWW-Authenticate", `Bearer realm="mcp", resource_metadata="${process.env.APP_ORIGIN}/.well-known/oauth-protected-resource"`);
+            res.setHeader("WWW-Authenticate", `Bearer realm="mcp", resource_metadata="${origin}/.well-known/oauth-protected-resource"`);
             res.status(401).json({
                 error: "unauthorized",
                 error_description: "Authentication required. See WWW-Authenticate header for authorization information.",
             });
             return;
         }
-        await module.handleSessionRequest(req, res, authenticationResult.userId);
+        await module.handleSessionRequest(req, res, authenticationResult.workspaceId, authenticationResult.userId);
     });
     app.post("/api/v1/mcp", async (req, res) => {
+        const origin = getOrigin(req);
         // Enable CORS for all domains
         res.setHeader("Access-Control-Allow-Origin", "*");
         res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
@@ -65,7 +78,7 @@ async function init() {
         });
         if (!authenticationResult) {
             // Step 1: Initial 401 handshake with WWW-Authenticate header
-            res.setHeader("WWW-Authenticate", `Bearer realm="mcp", resource_metadata="${process.env.APP_ORIGIN}/.well-known/oauth-protected-resource"`);
+            res.setHeader("WWW-Authenticate", `Bearer realm="mcp", resource_metadata="${origin}/.well-known/oauth-protected-resource"`);
             res.status(401).json({
                 error: "unauthorized",
                 error_description: "Authentication required. See WWW-Authenticate header for authorization information.",
@@ -83,11 +96,13 @@ async function init() {
                 await module.handleMCPRequest(req, res, parsedBody, authenticationResult, queryParams);
             }
             catch (error) {
+                console.log(error);
                 res.status(400).json({ error: "Invalid JSON" });
             }
         });
     });
     app.delete("/api/v1/mcp", async (req, res) => {
+        const origin = getOrigin(req);
         // Enable CORS for all domains
         res.setHeader("Access-Control-Allow-Origin", "*");
         res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
@@ -97,14 +112,14 @@ async function init() {
         });
         if (!authenticationResult) {
             // Step 1: Initial 401 handshake with WWW-Authenticate header
-            res.setHeader("WWW-Authenticate", `Bearer realm="mcp", resource_metadata="${process.env.APP_ORIGIN}/.well-known/oauth-protected-resource"`);
+            res.setHeader("WWW-Authenticate", `Bearer realm="mcp", resource_metadata="${origin}/.well-known/oauth-protected-resource"`);
             res.status(401).json({
                 error: "unauthorized",
                 error_description: "Authentication required. See WWW-Authenticate header for authorization information.",
             });
             return;
         }
-        await module.handleSessionRequest(req, res, authenticationResult.userId);
+        await module.handleSessionRequest(req, res, authenticationResult.workspaceId);
     });
     app.options("/api/v1/mcp", (_, res) => {
         // Enable CORS for all domains
@@ -115,9 +130,10 @@ async function init() {
     });
     // Step 2: Protected Resource Metadata (PRM) endpoint
     app.get("/.well-known/oauth-protected-resource", (req, res) => {
+        const origin = getOrigin(req);
         res.json({
-            resource: `${process.env.APP_ORIGIN}/api/v1/mcp`,
-            authorization_servers: [process.env.APP_ORIGIN],
+            resource: `${origin}/api/v1/mcp`,
+            authorization_servers: [origin],
             scopes_supported: [
                 "mcp",
                 "mcp:read",
@@ -131,11 +147,12 @@ async function init() {
     });
     // Step 3: Authorization Server Metadata endpoint
     app.get("/.well-known/oauth-authorization-server", (req, res) => {
+        const origin = getOrigin(req);
         res.json({
-            issuer: process.env.APP_ORIGIN,
-            authorization_endpoint: `${process.env.APP_ORIGIN}/oauth/authorize`,
-            token_endpoint: `${process.env.APP_ORIGIN}/oauth/token`,
-            registration_endpoint: `${process.env.APP_ORIGIN}/oauth/register`,
+            issuer: origin,
+            authorization_endpoint: `${origin}/oauth/authorize`,
+            token_endpoint: `${origin}/oauth/token`,
+            registration_endpoint: `${origin}/oauth/register`,
             scopes_supported: [
                 "mcp",
                 "mcp:read",
@@ -155,7 +172,17 @@ async function init() {
     });
     // handle SSR requests
     app.all("*", remixHandler);
+    // Create HTTP server and setup WebSocket
+    const server = createServer(app);
+    // Setup WebSocket with gateway module functions
+    module.setupWebSocket(server, {
+        verifyGatewayToken: module.verifyGatewayToken,
+        upsertGateway: module.upsertGateway,
+        updateGatewayTools: module.updateGatewayTools,
+        updateGatewayLastSeen: module.updateGatewayLastSeen,
+        disconnectGateway: module.disconnectGateway,
+    });
     const port = process.env.REMIX_APP_PORT || 3000;
-    app.listen(port, () => console.log(`Express server listening at http://localhost:${port}`));
+    server.listen(port, () => console.log(`Server listening at http://localhost:${port}`));
 }
 init().catch(console.error);

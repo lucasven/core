@@ -76,6 +76,14 @@ export async function createWorkspace(
   return workspace;
 }
 
+export async function getWorkspaceByUser(userId: string) {
+  const userWorkspace = await prisma.userWorkspace.findFirst({
+    where: { userId },
+    include: { workspace: true },
+  });
+  return userWorkspace?.workspace ?? null;
+}
+
 export async function getWorkspaceById(id: string) {
   return await prisma.workspace.findFirst({
     where: {

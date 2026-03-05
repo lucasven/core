@@ -79,11 +79,13 @@ export async function processSessionCompaction(
 
   try {
     // Fetch workspace to get embedding model and task model configuration
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: { Workspace: { select: { metadata: true } } },
-    });
-    const metadata = user?.Workspace?.metadata as
+    const workspace = workspaceId
+      ? await prisma.workspace.findUnique({
+          where: { id: workspaceId },
+          select: { metadata: true },
+        })
+      : null;
+    const metadata = workspace?.metadata as
       | {
           embeddingModel?: string;
           model?: string;

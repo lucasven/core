@@ -137,6 +137,12 @@ async function reembedStatements(
       for (const record of batch) {
         try {
           const embedding = await getEmbedding(record.fact, embeddingModel);
+          if (embedding.length === 0) {
+            const errorMsg = `Skipping statement ${record.id}: embedding returned empty vector`;
+            logger.warn(errorMsg);
+            errors.push(errorMsg);
+            continue;
+          }
           const vectorString = `[${embedding.join(",")}]`;
 
           await prisma.$executeRaw`
@@ -225,6 +231,12 @@ async function reembedEpisodes(
       for (const record of batch) {
         try {
           const embedding = await getEmbedding(record.content, embeddingModel);
+          if (embedding.length === 0) {
+            const errorMsg = `Skipping episode ${record.id}: embedding returned empty vector`;
+            logger.warn(errorMsg);
+            errors.push(errorMsg);
+            continue;
+          }
           const vectorString = `[${embedding.join(",")}]`;
 
           await prisma.$executeRaw`
@@ -311,6 +323,12 @@ async function reembedEntities(
       for (const record of batch) {
         try {
           const embedding = await getEmbedding(record.name, embeddingModel);
+          if (embedding.length === 0) {
+            const errorMsg = `Skipping entity ${record.id}: embedding returned empty vector`;
+            logger.warn(errorMsg);
+            errors.push(errorMsg);
+            continue;
+          }
           const vectorString = `[${embedding.join(",")}]`;
 
           await prisma.$executeRaw`
@@ -399,6 +417,12 @@ async function reembedCompactedSessions(
       for (const record of batch) {
         try {
           const embedding = await getEmbedding(record.summary, embeddingModel);
+          if (embedding.length === 0) {
+            const errorMsg = `Skipping compacted session ${record.id}: embedding returned empty vector`;
+            logger.warn(errorMsg);
+            errors.push(errorMsg);
+            continue;
+          }
           const vectorString = `[${embedding.join(",")}]`;
 
           await prisma.$executeRaw`
@@ -515,9 +539,11 @@ export async function reembedTask(
 
     const metadata = workspace.metadata as Record<string, any> | undefined;
     const embeddingModel = getWorkspaceEmbeddingModel(metadata);
-    const newDimension =
+    const newDimension = Math.min(
       metadata?.embeddingDimensions ||
-      parseInt(process.env.EMBEDDING_MODEL_SIZE || "1024", 10);
+        parseInt(process.env.EMBEDDING_MODEL_SIZE || "2000", 10),
+      2000, // pgvector HNSW index max
+    );
 
     result.newDimension = newDimension;
 
@@ -583,11 +609,20 @@ export async function reembedTask(
     }
 
     // Step 3: Create indexes AFTER re-embedding with new dimension
+    // Detect actual dimension from data to avoid mismatches
     if (!dryRun) {
-      logger.info(
-        `Creating HNSW indexes with new dimension ${newDimension}...`,
+      const dimResult = await prisma.$queryRawUnsafe<
+        { dims: number }[]
+      >(
+        `SELECT (length(vector::text) - length(replace(vector::text, ',', '')) + 1) as dims FROM core.statement_embeddings LIMIT 1;`,
       );
-      await createIndexes(newDimension);
+      const actualDimension =
+        dimResult.length > 0 ? Number(dimResult[0].dims) : newDimension;
+      result.newDimension = actualDimension;
+      logger.info(
+        `Creating HNSW indexes with actual dimension ${actualDimension} (configured: ${newDimension})...`,
+      );
+      await createIndexes(actualDimension);
     } else {
       logger.info(
         `[DRY RUN] Would create HNSW indexes with dimension ${newDimension}`,

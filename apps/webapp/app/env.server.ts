@@ -115,7 +115,7 @@ const EnvironmentSchema = z
     // Model envs
     MODEL: z.string().default(LLMModelEnum.GPT41),
     EMBEDDING_MODEL: z.string().default("mxbai-embed-large"),
-    EMBEDDING_MODEL_SIZE: z.string().default("1024"),
+    EMBEDDING_MODEL_SIZE: z.string().default("2000"),
     OLLAMA_URL: z.string().optional(),
 
     // Reranking configuration

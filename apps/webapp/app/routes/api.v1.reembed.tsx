@@ -131,7 +131,7 @@ export const loader = async ({ request }: ActionFunctionArgs) => {
         embeddingModel: metadata?.embeddingModel || process.env.EMBEDDING_MODEL,
         embeddingDimensions:
           metadata?.embeddingDimensions ||
-          parseInt(process.env.EMBEDDING_MODEL_SIZE || "1024", 10),
+          parseInt(process.env.EMBEDDING_MODEL_SIZE || "2000", 10),
       },
       embeddingCounts: counts,
       body: {

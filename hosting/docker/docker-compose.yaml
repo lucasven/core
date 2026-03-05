@@ -92,6 +92,7 @@ services:
   redis:
     container_name: core-redis
     image: redis:7
+    restart: ${RESTART_POLICY:-unless-stopped}
     ports:
       - "6379:6379"
     networks:
@@ -100,6 +101,7 @@ services:
   neo4j:
     container_name: core-neo4j
     image: redplanethq/neo4j:0.1.0
+    restart: ${RESTART_POLICY:-unless-stopped}
     environment:
       - NEO4J_AUTH=${NEO4J_AUTH}
       - NEO4J_dbms_security_procedures_unrestricted=gds.*,apoc.*

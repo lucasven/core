@@ -14,6 +14,7 @@ import {
 } from "~/services/conversation.server";
 
 import { getModel, getWorkspaceChatModel } from "~/lib/model.server";
+import { prisma } from "~/db.server";
 import { EpisodeType, UserTypeEnum } from "@core/types";
 import {
   hasAnswer,
@@ -130,6 +131,12 @@ const { loader, action } = createHybridActionApiRoute(
     });
 
     // Get workspace-specific chat model
+    const workspace = authentication.workspaceId
+      ? await prisma.workspace.findUnique({
+          where: { id: authentication.workspaceId },
+          select: { metadata: true },
+        })
+      : null;
     const chatModel = getWorkspaceChatModel(
       workspace?.metadata as { model?: string } | undefined,
     );

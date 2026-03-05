@@ -119,6 +119,27 @@ const ALL_MODELS = [
     provider: "OpenRouter",
     requiresKey: "OPENROUTER_API_KEY",
   },
+  {
+    id: "google/gemini-3-flash-preview",
+    name: "Gemini 3 Flash Preview",
+    price: "$0.50 / $3.00",
+    provider: "OpenRouter",
+    requiresKey: "OPENROUTER_API_KEY",
+  },
+  {
+    id: "openai/gpt-5-nano",
+    name: "GPT-5 Nano",
+    price: "$0.05 / $0.40",
+    provider: "OpenRouter",
+    requiresKey: "OPENROUTER_API_KEY",
+  },
+  {
+    id: "openai/gpt-4.1-mini",
+    name: "GPT-4.1 Mini",
+    price: "$0.40 / $1.60",
+    provider: "OpenRouter",
+    requiresKey: "OPENROUTER_API_KEY",
+  },
   // OpenAI Direct
   {
     id: "gpt-4.1-2025-04-14",

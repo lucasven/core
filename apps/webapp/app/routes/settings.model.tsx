@@ -79,6 +79,24 @@ const MODEL_GROUPS = [
         price: "$0.10 / $0.40",
         description: "Fast and capable",
       },
+      {
+        id: "google/gemini-3-flash-preview",
+        name: "Gemini 3 Flash Preview",
+        price: "$0.50 / $3.00",
+        description: "High-speed thinking model for agentic workflows",
+      },
+      {
+        id: "openai/gpt-5-nano",
+        name: "GPT-5 Nano",
+        price: "$0.05 / $0.40",
+        description: "Ultra-fast, cheapest GPT-5 variant",
+      },
+      {
+        id: "openai/gpt-4.1-mini",
+        name: "GPT-4.1 Mini",
+        price: "$0.40 / $1.60",
+        description: "Cost-effective GPT-4.1 variant",
+      },
     ],
   },
   {
@@ -199,9 +217,9 @@ const EMBEDDING_MODEL_GROUPS = [
       {
         id: "openai/text-embedding-3-large",
         name: "OpenAI Text Embedding 3 Large",
-        dimensions: 3072,
+        dimensions: 2000,
         price: "$0.13",
-        description: "Highest quality OpenAI embeddings, 8K context",
+        description: "Highest quality OpenAI embeddings, 8K context (MRL truncated from 3072)",
       },
       {
         id: "openai/text-embedding-ada-002",
@@ -241,14 +259,14 @@ const EMBEDDING_MODEL_GROUPS = [
       {
         id: "qwen/qwen3-embedding-8b",
         name: "Qwen3 Embedding 8B",
-        dimensions: 4096,
+        dimensions: 2000,
         price: "$0.01",
-        description: "Best quality Qwen, 32K context",
+        description: "Best quality Qwen, 32K context (MRL truncated from 4096)",
       },
       {
         id: "qwen/qwen3-embedding-4b",
         name: "Qwen3 Embedding 4B",
-        dimensions: 2560,
+        dimensions: 2000,
         price: "$0.02",
         description: "Balanced quality/speed, 32K context",
       },
@@ -374,9 +392,9 @@ const EMBEDDING_MODEL_GROUPS = [
       {
         id: "text-embedding-3-large",
         name: "Text Embedding 3 Large",
-        dimensions: 3072,
+        dimensions: 2000,
         price: "$0.13",
-        description: "Best quality OpenAI embeddings",
+        description: "Best quality OpenAI embeddings (MRL truncated from 3072)",
       },
     ],
   },
@@ -414,7 +432,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const currentEmbeddingDimensions =
     (workspace.metadata as any)?.embeddingDimensions ||
-    parseInt(process.env.EMBEDDING_MODEL_SIZE || "1536", 10);
+    parseInt(process.env.EMBEDDING_MODEL_SIZE || "2000", 10);
 
   // Check which API keys are available
   const availableKeys: string[] = [];

@@ -36,11 +36,13 @@ const { action, loader } = createHybridActionApiRoute(
   },
   async ({ body, authentication }) => {
     // Fetch workspace to get embedding model configuration and search settings
-    const user = await prisma.user.findUnique({
-      where: { id: authentication.userId },
-      include: { Workspace: { select: { metadata: true } } },
-    });
-    const metadata = user?.Workspace?.metadata as
+    const workspace = authentication.workspaceId
+      ? await prisma.workspace.findUnique({
+          where: { id: authentication.workspaceId },
+          select: { metadata: true },
+        })
+      : null;
+    const metadata = workspace?.metadata as
       | Record<string, any>
       | undefined;
     const embeddingModel = getWorkspaceEmbeddingModel(metadata);
